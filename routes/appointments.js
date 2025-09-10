@@ -9,15 +9,17 @@ const {
 
 const router = express.Router();
 
+const { protect, authorize } = require('../middleware/auth');
+
 router
   .route('/')
-  .get(getAppointments)
-  .post(createAppointment);
+  .get(protect, authorize('patient', 'doctor'), getAppointments)
+  .post(protect, authorize('patient'), createAppointment);
 
 router
   .route('/:id')
-  .get(getAppointment)
-  .put(updateAppointment)
-  .delete(deleteAppointment);
+  .get(protect, authorize('patient', 'doctor'), getAppointment)
+  .put(protect, authorize('patient'), updateAppointment)
+  .delete(protect, authorize('patient'), deleteAppointment);
 
 module.exports = router;

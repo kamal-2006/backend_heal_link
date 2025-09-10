@@ -7,8 +7,15 @@ exports.register = async (req, res, next) => {
   try {
     const { firstName, lastName, email, phone, role, password } = req.body;
 
+    // Check if user already exists
+    let user = await User.findOne({ email });
+
+    if (user) {
+      return res.status(400).json({ success: false, error: 'User already exists' });
+    }
+
     // Create user
-    const user = await User.create({
+    user = await User.create({
       firstName,
       lastName,
       email,
@@ -17,10 +24,7 @@ exports.register = async (req, res, next) => {
       password,
     });
 
-    res.status(201).json({
-      success: true,
-      data: user,
-    });
+    sendTokenResponse(user, 201, res);
   } catch (error) {
     res.status(400).json({
       success: false,
@@ -56,6 +60,19 @@ exports.login = async (req, res, next) => {
 
     sendTokenResponse(user, 200, res);
 };
+
+// @desc    Get current logged in user
+// @route   POST /api/v1/auth/me
+// @access  Private
+exports.getMe = async (req, res, next) => {
+  const user = await User.findById(req.user.id);
+
+  res.status(200).json({
+    success: true,
+    data: user,
+  });
+};
+
 
 // Get token from model, create cookie and send response
 const sendTokenResponse = (user, statusCode, res) => {
