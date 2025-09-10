@@ -9,15 +9,17 @@ const {
 
 const router = express.Router();
 
+const { protect } = require('../middlewares/auth');
+
 router
   .route('/')
-  .get(getFeedbacks)
-  .post(createFeedback);
+  .get(protect, getFeedbacks)
+  .post(protect, createFeedback);
 
 router
   .route('/:id')
-  .get(getFeedback)
-  .put(updateFeedback)
-  .delete(deleteFeedback);
+  .get(protect, getFeedback)
+  .put(protect, updateFeedback)
+  .delete(protect, deleteFeedback);
 
 module.exports = router;

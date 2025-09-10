@@ -4,7 +4,12 @@ const Patient = require('../models/Patient');
 // @route   GET /api/v1/patients
 // @access  Private
 exports.getPatients = async (req, res, next) => {
-    res.status(200).json({ success: true, msg: 'Show all patients' });
+    try {
+        const patients = await Patient.find();
+        res.status(200).json({ success: true, count: patients.length, data: patients });
+    } catch (error) {
+        res.status(400).json({ success: false });
+    }
 };
 
 // @desc    Get single patient

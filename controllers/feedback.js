@@ -4,7 +4,12 @@ const Feedback = require('../models/Feedback');
 // @route   GET /api/v1/feedback
 // @access  Private
 exports.getFeedbacks = async (req, res, next) => {
-    res.status(200).json({ success: true, msg: 'Show all feedback' });
+    try {
+        const feedbacks = await Feedback.find();
+        res.status(200).json({ success: true, count: feedbacks.length, data: feedbacks });
+    } catch (error) {
+        res.status(400).json({ success: false });
+    }
 };
 
 // @desc    Get single feedback
