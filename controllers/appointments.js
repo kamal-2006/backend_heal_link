@@ -4,7 +4,30 @@ const Appointment = require('../models/Appointment');
 // @route   GET /api/v1/appointments
 // @access  Private
 exports.getAppointments = async (req, res, next) => {
-    res.status(200).json({ success: true, msg: 'Show all appointments' });
+    try {
+        let query;
+
+        if (req.user.role === 'doctor') {
+            query = Appointment.find({ doctor: req.user.id }).populate({
+                path: 'patient',
+                select: 'firstName lastName'
+            });
+        } else if (req.user.role === 'patient') {
+            query = Appointment.find({ patient: req.user.id }).populate({
+                path: 'doctor',
+                select: 'firstName lastName'
+            });
+        } else {
+            // Should not happen
+            return res.status(403).json({ success: false, error: 'User role not recognized' });
+        }
+
+        const appointments = await query;
+
+        res.status(200).json({ success: true, count: appointments.length, data: appointments });
+    } catch (error) {
+        res.status(400).json({ success: false });
+    }
 };
 
 // @desc    Get single appointment
@@ -18,7 +41,23 @@ exports.getAppointment = async (req, res, next) => {
 // @route   POST /api/v1/appointments
 // @access  Private
 exports.createAppointment = async (req, res, next) => {
-    res.status(201).json({ success: true, msg: 'Create new appointment' });
+    try {
+        // Set patient to current user if they are a patient
+        if (req.user.role === 'patient') {
+            req.body.patient = req.user.id;
+        }
+        // If doctor is creating appointment, they should specify the patient
+        const appointment = await Appointment.create(req.body);
+        res.status(201).json({
+            success: true,
+            data: appointment
+        });
+    } catch (error) {
+        res.status(400).json({
+            success: false,
+            error: error.message
+        });
+    }
 };
 
 // @desc    Update appointment

@@ -9,15 +9,17 @@ const {
 
 const router = express.Router();
 
+const { protect } = require('../middleware/auth');
+
 router
   .route('/')
-  .get(getPrescriptions)
-  .post(createPrescription);
+  .get(protect, getPrescriptions)
+  .post(protect, createPrescription);
 
 router
   .route('/:id')
-  .get(getPrescription)
-  .put(updatePrescription)
-  .delete(deletePrescription);
+  .get(protect, getPrescription)
+  .put(protect, updatePrescription)
+  .delete(protect, deletePrescription);
 
 module.exports = router;
