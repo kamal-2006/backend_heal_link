@@ -1,1 +1,4 @@
 node_modules
+config/config.env
+npm-debug.log*
+*.log

@@ -15,8 +15,14 @@ const app = express();
 // Body parser
 app.use(express.json());
 
-// Enable CORS
-app.use(cors());
+// Enable CORS for frontend origin
+app.use(cors({
+  origin: [
+    'http://localhost:3000',
+    process.env.FRONTEND_ORIGIN
+  ].filter(Boolean),
+  credentials: true,
+}));
 
 // Mount routers
 app.use('/api/v1/auth', require('./routes/auth'));

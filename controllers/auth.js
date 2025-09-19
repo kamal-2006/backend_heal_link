@@ -1,4 +1,5 @@
 const User = require('../models/User');
+const { OAuth2Client } = require('google-auth-library');
 
 // @desc    Register user
 // @route   POST /api/v1/auth/register
@@ -80,6 +81,118 @@ exports.getMe = async (req, res, next) => {
   });
 };
 
+
+// @desc    Google OAuth login
+// @route   POST /api/v1/auth/google
+// @access  Public
+exports.googleLogin = async (req, res, next) => {
+  try {
+    const tokenId = req.body.tokenId || req.body.credential || req.body.id_token;
+
+    if (!tokenId) {
+      return res.status(400).json({ success: false, error: 'Google token is required' });
+    }
+
+    const expectedClientId = process.env.GOOGLE_CLIENT_ID;
+    if (!expectedClientId || expectedClientId === 'your_google_client_id_here') {
+      return res.status(400).json({ success: false, error: 'Server Google client ID is not configured' });
+    }
+    const client = new OAuth2Client(expectedClientId);
+    
+    // Verify the Google token
+    const ticket = await client.verifyIdToken({ idToken: tokenId, audience: expectedClientId });
+
+    const payload = ticket.getPayload();
+    if (payload?.aud && payload.aud !== expectedClientId) {
+      return res.status(400).json({ success: false, error: 'Google token audience does not match configured client ID' });
+    }
+    const { sub: googleId, email, given_name: firstName, family_name: lastName, picture } = payload;
+
+    // Check if user already exists
+    let user = await User.findOne({ 
+      $or: [
+        { email },
+        { googleId }
+      ]
+    });
+
+    if (user) {
+      // Update existing user with Google info if they don't have it
+      if (!user.googleId) {
+        user.googleId = googleId;
+        user.googleProfile = {
+          picture,
+          verified: payload.email_verified
+        };
+        user.isGoogleUser = true;
+        await user.save();
+      }
+    } else {
+      // Create new user
+      user = await User.create({
+        firstName,
+        lastName,
+        email,
+        googleId,
+        googleProfile: {
+          picture,
+          verified: payload.email_verified
+        },
+        isGoogleUser: true,
+        role: 'patient' // Default role, can be changed later
+      });
+    }
+
+    sendTokenResponse(user, 200, res);
+  } catch (error) {
+    console.error('Google login error:', error?.message || error);
+    res.status(400).json({
+      success: false,
+      error: `Invalid Google token${error?.message ? `: ${error.message}` : ''}`,
+    });
+  }
+};
+
+// @desc    Update user role after Google login
+// @route   PUT /api/v1/auth/update-role
+// @access  Private
+exports.updateRole = async (req, res, next) => {
+  try {
+    const { role } = req.body;
+    const userId = req.user.id;
+
+    if (!role || !['patient', 'doctor'].includes(role)) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Valid role (patient or doctor) is required' 
+      });
+    }
+
+    const user = await User.findByIdAndUpdate(
+      userId,
+      { role },
+      { new: true, runValidators: true }
+    );
+
+    if (!user) {
+      return res.status(404).json({ 
+        success: false, 
+        error: 'User not found' 
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      data: user,
+      message: 'Role updated successfully'
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: 'Server error during role update',
+    });
+  }
+};
 
 // Get token from model, create cookie and send response
 const sendTokenResponse = (user, statusCode, res) => {
