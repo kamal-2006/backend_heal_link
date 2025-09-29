@@ -69,35 +69,72 @@ exports.login = async (req, res, next) => {
     }
 };
 
-// @desc    Get current logged in user
-// @route   POST /api/v1/auth/me
+// @desc    Logout user
+// @route   POST /api/v1/auth/logout
 // @access  Private
-exports.getMe = async (req, res, next) => {
-  const user = await User.findById(req.user.id);
+exports.logout = async (req, res, next) => {
+  try {
+    res.cookie('token', 'none', {
+      expires: new Date(Date.now() + 10 * 1000),
+      httpOnly: true
+    });
 
-  res.status(200).json({
-    success: true,
-    data: user,
-  });
+    res.status(200).json({
+      success: true,
+      data: {}
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: 'Server error during logout'
+    });
+  }
 };
 
+
+// @desc    Get current logged in user
+// @route   GET /api/v1/auth/me
+// @access  Private
+exports.getMe = async (req, res, next) => {
+  try {
+    const user = await User.findById(req.user.id);
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      data: user
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: 'Server error fetching user profile'
+    });
+  }
+};
 
 // @desc    Google OAuth login
 // @route   POST /api/v1/auth/google
 // @access  Public
 exports.googleLogin = async (req, res, next) => {
   try {
-    const tokenId = req.body.tokenId || req.body.credential || req.body.id_token;
-
+    const { tokenId } = req.body;
+    
     if (!tokenId) {
-      return res.status(400).json({ success: false, error: 'Google token is required' });
+      return res.status(400).json({
+        success: false,
+        error: 'Google token is required'
+      });
     }
 
+    const { OAuth2Client } = require('google-auth-library');
+    const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
     const expectedClientId = process.env.GOOGLE_CLIENT_ID;
-    if (!expectedClientId || expectedClientId === 'your_google_client_id_here') {
-      return res.status(400).json({ success: false, error: 'Server Google client ID is not configured' });
-    }
-    const client = new OAuth2Client(expectedClientId);
     
     // Verify the Google token
     const ticket = await client.verifyIdToken({ idToken: tokenId, audience: expectedClientId });
@@ -141,8 +178,8 @@ exports.googleLogin = async (req, res, next) => {
         isGoogleUser: true,
         role: 'patient' // Default role, can be changed later
       });
+    
     }
-
     sendTokenResponse(user, 200, res);
   } catch (error) {
     console.error('Google login error:', error?.message || error);
@@ -152,6 +189,7 @@ exports.googleLogin = async (req, res, next) => {
     });
   }
 };
+
 
 // @desc    Update user role after Google login
 // @route   PUT /api/v1/auth/update-role
