@@ -132,18 +132,58 @@ exports.googleLogin = async (req, res, next) => {
       });
     }
 
+    // Check if GOOGLE_CLIENT_ID is configured
+    if (!process.env.GOOGLE_CLIENT_ID) {
+      console.error('GOOGLE_CLIENT_ID environment variable is not configured');
+      return res.status(500).json({
+        success: false,
+        error: 'Google authentication is not properly configured on the server'
+      });
+    }
+
     const { OAuth2Client } = require('google-auth-library');
     const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
     const expectedClientId = process.env.GOOGLE_CLIENT_ID;
     
     // Verify the Google token
-    const ticket = await client.verifyIdToken({ idToken: tokenId, audience: expectedClientId });
+    let ticket;
+    try {
+      ticket = await client.verifyIdToken({ 
+        idToken: tokenId, 
+        audience: expectedClientId 
+      });
+    } catch (verifyError) {
+      console.error('Google token verification failed:', verifyError);
+      return res.status(401).json({
+        success: false,
+        error: 'Failed to verify Google token: ' + verifyError.message
+      });
+    }
 
     const payload = ticket.getPayload();
-    if (payload?.aud && payload.aud !== expectedClientId) {
-      return res.status(400).json({ success: false, error: 'Google token audience does not match configured client ID' });
+    if (!payload) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid Google token payload'
+      });
     }
+
+    if (payload?.aud && payload.aud !== expectedClientId) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Google token audience does not match configured client ID' 
+      });
+    }
+
+    // Extract user information from payload
     const { sub: googleId, email, given_name: firstName, family_name: lastName, picture } = payload;
+    
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        error: 'Email not provided in Google token'
+      });
+    }
 
     // Check if user already exists
     let user = await User.findOne({ 
@@ -167,8 +207,8 @@ exports.googleLogin = async (req, res, next) => {
     } else {
       // Create new user
       user = await User.create({
-        firstName,
-        lastName,
+        firstName: firstName || 'Google',
+        lastName: lastName || 'User',
         email,
         googleId,
         googleProfile: {
@@ -178,14 +218,14 @@ exports.googleLogin = async (req, res, next) => {
         isGoogleUser: true,
         role: 'patient' // Default role, can be changed later
       });
-    
     }
+    
     sendTokenResponse(user, 200, res);
   } catch (error) {
     console.error('Google login error:', error?.message || error);
-    res.status(400).json({
+    res.status(500).json({
       success: false,
-      error: `Invalid Google token${error?.message ? `: ${error.message}` : ''}`,
+      error: `Google authentication failed: ${error?.message || 'Unknown error'}`,
     });
   }
 };
@@ -228,6 +268,59 @@ exports.updateRole = async (req, res, next) => {
     res.status(500).json({
       success: false,
       error: 'Server error during role update',
+    });
+  }
+};
+
+// @desc    Change password
+// @route   PUT /api/v1/auth/changepassword
+// @access  Private
+exports.changePassword = async (req, res, next) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+
+    // Validate input
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({
+        success: false,
+        error: 'Please provide current password and new password'
+      });
+    }
+
+    // Get user with password
+    const user = await User.findById(req.user.id).select('+password');
+
+    // Check current password
+    const isMatch = await user.matchPassword(currentPassword);
+
+    if (!isMatch) {
+      return res.status(401).json({
+        success: false,
+        error: 'Current password is incorrect'
+      });
+    }
+
+    // Validate new password length
+    if (newPassword.length < 6) {
+      return res.status(400).json({
+        success: false,
+        error: 'Password must be at least 6 characters long'
+      });
+    }
+
+    // Update password
+    user.password = newPassword;
+    await user.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Password updated successfully'
+    });
+  } catch (error) {
+    console.error('Change password error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Server error during password change'
     });
   }
 };

@@ -17,6 +17,72 @@ exports.getPatients = async (req, res, next) => {
     }
 };
 
+// @desc    Update patient settings
+// @route   PUT /api/v1/patients/me/settings
+// @access  Private (Patient only)
+exports.updatePatientSettings = async (req, res, next) => {
+    try {
+        const {
+            notificationPreferences,
+            privacySettings,
+            displayPreferences,
+            communicationPreferences,
+            accessibilitySettings
+        } = req.body;
+
+        // Find patient by user ID
+        let patient = await Patient.findOne({ user: req.user.id });
+
+        if (!patient) {
+            return res.status(404).json({
+                success: false,
+                error: 'Patient profile not found'
+            });
+        }
+
+        // Create settings object with only provided fields
+        const settingsUpdate = {};
+        
+        if (notificationPreferences) {
+            settingsUpdate.notificationPreferences = notificationPreferences;
+        }
+        
+        if (privacySettings) {
+            settingsUpdate.privacySettings = privacySettings;
+        }
+        
+        if (displayPreferences) {
+            settingsUpdate.displayPreferences = displayPreferences;
+        }
+        
+        if (communicationPreferences) {
+            settingsUpdate.communicationPreferences = communicationPreferences;
+        }
+        
+        if (accessibilitySettings) {
+            settingsUpdate.accessibilitySettings = accessibilitySettings;
+        }
+
+        // Update patient with settings
+        patient = await Patient.findOneAndUpdate(
+            { user: req.user.id },
+            { settings: settingsUpdate },
+            { new: true, runValidators: true }
+        );
+
+        res.status(200).json({
+            success: true,
+            data: patient.settings
+        });
+    } catch (error) {
+        console.error('Error updating patient settings:', error);
+        res.status(400).json({
+            success: false,
+            error: error.message
+        });
+    }
+};
+
 // @desc    Get single patient
 // @route   GET /api/v1/patients/:id
 // @access  Private
@@ -182,6 +248,147 @@ exports.getPatientDashboard = async (req, res) => {
         res.status(500).json({
             success: false,
             error: 'Server error fetching dashboard data'
+        });
+    }
+};
+
+// @desc    Get current patient's profile
+// @route   GET /api/v1/patients/me
+// @access  Private (Patient only)
+exports.getMyProfile = async (req, res, next) => {
+    try {
+        // Find patient by user ID
+        const patient = await Patient.findOne({ user: req.user.id })
+            .populate({
+                path: 'user',
+                select: 'firstName lastName email phone role createdAt'
+            })
+            .populate({
+                path: 'appointments',
+                select: 'date time status doctor',
+                populate: {
+                    path: 'doctor',
+                    select: 'firstName lastName specialization'
+                }
+            })
+            .populate({
+                path: 'medicalRecords',
+                select: 'recordType date diagnosis treatment notes'
+            });
+
+        if (!patient) {
+            // If patient profile doesn't exist, create one
+            const newPatient = await Patient.create({
+                user: req.user.id
+            });
+
+            const populatedPatient = await Patient.findById(newPatient._id)
+                .populate({
+                    path: 'user',
+                    select: 'firstName lastName email phone role createdAt'
+                });
+
+            return res.status(200).json({
+                success: true,
+                data: populatedPatient
+            });
+        }
+
+        res.status(200).json({
+            success: true,
+            data: patient
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: 'Server error fetching patient profile'
+        });
+    }
+};
+
+// @desc    Update current patient's profile
+// @route   PUT /api/v1/patients/me
+// @access  Private (Patient only)
+exports.updateMyProfile = async (req, res, next) => {
+    try {
+        const { 
+            dateOfBirth, 
+            gender,
+            bloodType, 
+            height,
+            weight,
+            address,
+            allergies, 
+            medicalConditions,
+            medications,
+            emergencyContact, 
+            insuranceInfo,
+            preferredLanguage,
+            maritalStatus,
+            occupation,
+            smokingStatus,
+            alcoholUse
+        } = req.body;
+
+        // Find patient by user ID
+        let patient = await Patient.findOne({ user: req.user.id });
+
+        const updateData = {
+            dateOfBirth,
+            gender,
+            bloodType,
+            height,
+            weight,
+            address,
+            allergies,
+            medicalConditions,
+            medications,
+            emergencyContact,
+            insuranceInfo,
+            preferredLanguage,
+            maritalStatus,
+            occupation,
+            smokingStatus,
+            alcoholUse
+        };
+
+        // Remove undefined values
+        Object.keys(updateData).forEach(key => {
+            if (updateData[key] === undefined) {
+                delete updateData[key];
+            }
+        });
+
+        if (!patient) {
+            // If patient profile doesn't exist, create one
+            patient = await Patient.create({
+                user: req.user.id,
+                ...updateData
+            });
+        } else {
+            // Update existing patient profile
+            patient = await Patient.findOneAndUpdate(
+                { user: req.user.id },
+                updateData,
+                { new: true, runValidators: true }
+            );
+        }
+
+        // Populate user details
+        await patient.populate({
+            path: 'user',
+            select: 'firstName lastName email phone role'
+        });
+
+        res.status(200).json({
+            success: true,
+            data: patient
+        });
+    } catch (error) {
+        console.error('Error updating patient profile:', error);
+        res.status(400).json({
+            success: false,
+            error: error.message
         });
     }
 };

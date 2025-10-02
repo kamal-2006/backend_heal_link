@@ -29,6 +29,7 @@ app.use(cors({
 app.use('/api/v1/auth', require('./routes/auth'));
 app.use('/api/v1/appointments', require('./routes/appointments'));
 app.use('/api/v1/patients', require('./routes/patients'));
+app.use('/api/v1/doctors', require('./routes/doctors'));
 app.use('/api/v1/prescriptions', require('./routes/prescriptions'));
 app.use('/api/v1/feedback', require('./routes/feedback'));
 app.use('/api/v1/records', require('./routes/medicalRecords'));
