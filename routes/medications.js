@@ -8,7 +8,12 @@ const {
   updateMedication,
   deleteMedication,
   updateMedicationStatus,
-  getActiveMedications
+  getActiveMedications,
+  getMyMedications,
+  getMyActiveMedications,
+  getMyMedicationReminders,
+  updateMedicationReminders,
+  addMedicationNote
 } = require('../controllers/medications');
 
 // Base routes
@@ -22,10 +27,32 @@ router
   .route('/active')
   .get(protect, authorize('admin', 'doctor', 'patient'), getActiveMedications);
 
+// Patient-specific routes
+router
+  .route('/my')
+  .get(protect, authorize('patient'), getMyMedications);
+
+router
+  .route('/my/active')
+  .get(protect, authorize('patient'), getMyActiveMedications);
+
+router
+  .route('/my/reminders')
+  .get(protect, authorize('patient'), getMyMedicationReminders);
+
 // Status update route
 router
   .route('/:id/status')
   .put(protect, authorize('admin', 'doctor', 'patient'), updateMedicationStatus);
+
+// Patient medication management routes
+router
+  .route('/:id/reminders')
+  .put(protect, authorize('patient'), updateMedicationReminders);
+
+router
+  .route('/:id/notes')
+  .put(protect, authorize('patient'), addMedicationNote);
 
 // Individual medication routes
 router

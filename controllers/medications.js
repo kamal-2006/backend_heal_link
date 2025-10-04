@@ -302,3 +302,226 @@ exports.getActiveMedications = asyncHandler(async (req, res, next) => {
     data: medications
   });
 });
+
+// @desc    Get my medications (for logged in patient)
+// @route   GET /api/v1/medications/my
+// @access  Private/Patient
+exports.getMyMedications = asyncHandler(async (req, res, next) => {
+  // Find patient by user ID
+  const patient = await Patient.findOne({ user: req.user.id });
+  
+  if (!patient) {
+    return next(new ErrorResponse('Patient profile not found', 404));
+  }
+
+  // Build query
+  let query = { patient: patient._id };
+  const { status, search, category } = req.query;
+
+  // Filter by status
+  if (status && status !== 'all') {
+    query.status = status;
+  }
+
+  // Search by medication name
+  if (search) {
+    query.name = { $regex: search, $options: 'i' };
+  }
+
+  // Get medications
+  const medications = await Medication.find(query)
+    .populate({
+      path: 'doctor',
+      select: 'firstName lastName specialization'
+    })
+    .sort({ startDate: -1 });
+
+  // Group medications by status
+  const groupedMedications = {
+    active: medications.filter(med => med.status === 'active'),
+    completed: medications.filter(med => med.status === 'completed'),
+    cancelled: medications.filter(med => med.status === 'cancelled')
+  };
+
+  res.status(200).json({
+    success: true,
+    count: medications.length,
+    data: medications,
+    grouped: groupedMedications
+  });
+});
+
+// @desc    Get active medications for logged in patient
+// @route   GET /api/v1/medications/my/active
+// @access  Private/Patient
+exports.getMyActiveMedications = asyncHandler(async (req, res, next) => {
+  // Find patient by user ID
+  const patient = await Patient.findOne({ user: req.user.id });
+  
+  if (!patient) {
+    return next(new ErrorResponse('Patient profile not found', 404));
+  }
+
+  // Get active medications
+  const medications = await Medication.find({ 
+    patient: patient._id,
+    status: 'active',
+    $or: [
+      { endDate: { $gte: new Date() } },
+      { endDate: { $exists: false } }
+    ]
+  })
+  .populate({
+    path: 'doctor',
+    select: 'firstName lastName specialization'
+  })
+  .sort({ startDate: -1 });
+
+  // Calculate adherence stats
+  const totalMedications = medications.length;
+  const todaysMedications = medications.filter(med => {
+    const today = new Date();
+    const startDate = new Date(med.startDate);
+    return startDate <= today && (!med.endDate || new Date(med.endDate) >= today);
+  });
+
+  res.status(200).json({
+    success: true,
+    count: medications.length,
+    data: medications,
+    stats: {
+      total: totalMedications,
+      active: todaysMedications.length
+    }
+  });
+});
+
+// @desc    Get medication reminders for today
+// @route   GET /api/v1/medications/my/reminders
+// @access  Private/Patient
+exports.getMyMedicationReminders = asyncHandler(async (req, res, next) => {
+  // Find patient by user ID
+  const patient = await Patient.findOne({ user: req.user.id });
+  
+  if (!patient) {
+    return next(new ErrorResponse('Patient profile not found', 404));
+  }
+
+  const today = new Date();
+  
+  // Get active medications with reminders enabled
+  const medications = await Medication.find({ 
+    patient: patient._id,
+    status: 'active',
+    'reminders.enabled': true,
+    $or: [
+      { endDate: { $gte: today } },
+      { endDate: { $exists: false } }
+    ]
+  })
+  .populate({
+    path: 'doctor',
+    select: 'firstName lastName specialization'
+  });
+
+  // Format reminders for today
+  const todaysReminders = [];
+  
+  medications.forEach(medication => {
+    if (medication.reminders.times && medication.reminders.times.length > 0) {
+      medication.reminders.times.forEach(time => {
+        todaysReminders.push({
+          medicationId: medication._id,
+          medicationName: medication.name,
+          dosage: medication.dosage,
+          time: time,
+          instructions: medication.instructions,
+          doctor: medication.doctor
+        });
+      });
+    }
+  });
+
+  // Sort by time
+  todaysReminders.sort((a, b) => {
+    const timeA = a.time.split(':').map(Number);
+    const timeB = b.time.split(':').map(Number);
+    return (timeA[0] * 60 + timeA[1]) - (timeB[0] * 60 + timeB[1]);
+  });
+
+  res.status(200).json({
+    success: true,
+    count: todaysReminders.length,
+    data: todaysReminders
+  });
+});
+
+// @desc    Update medication reminder settings
+// @route   PUT /api/v1/medications/:id/reminders
+// @access  Private/Patient
+exports.updateMedicationReminders = asyncHandler(async (req, res, next) => {
+  // Find patient by user ID
+  const patient = await Patient.findOne({ user: req.user.id });
+  
+  if (!patient) {
+    return next(new ErrorResponse('Patient profile not found', 404));
+  }
+
+  let medication = await Medication.findById(req.params.id);
+
+  if (!medication) {
+    return next(new ErrorResponse(`Medication not found with id of ${req.params.id}`, 404));
+  }
+
+  // Check if this medication belongs to the patient
+  if (medication.patient.toString() !== patient._id.toString()) {
+    return next(new ErrorResponse(`User ${req.user.id} is not authorized to update this medication`, 401));
+  }
+
+  const { enabled, times } = req.body;
+
+  medication.reminders = {
+    enabled: enabled,
+    times: times || medication.reminders.times
+  };
+
+  await medication.save();
+
+  res.status(200).json({
+    success: true,
+    data: medication
+  });
+});
+
+// @desc    Add medication note
+// @route   PUT /api/v1/medications/:id/notes
+// @access  Private/Patient
+exports.addMedicationNote = asyncHandler(async (req, res, next) => {
+  // Find patient by user ID
+  const patient = await Patient.findOne({ user: req.user.id });
+  
+  if (!patient) {
+    return next(new ErrorResponse('Patient profile not found', 404));
+  }
+
+  let medication = await Medication.findById(req.params.id);
+
+  if (!medication) {
+    return next(new ErrorResponse(`Medication not found with id of ${req.params.id}`, 404));
+  }
+
+  // Check if this medication belongs to the patient
+  if (medication.patient.toString() !== patient._id.toString()) {
+    return next(new ErrorResponse(`User ${req.user.id} is not authorized to update this medication`, 401));
+  }
+
+  const { notes } = req.body;
+
+  medication.notes = notes;
+  await medication.save();
+
+  res.status(200).json({
+    success: true,
+    data: medication
+  });
+});
