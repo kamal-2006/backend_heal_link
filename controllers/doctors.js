@@ -137,45 +137,114 @@ exports.getAvailableDoctors = async (req, res, next) => {
 // @route   POST /api/v1/doctors
 // @access  Private (Admin only)
 exports.createDoctor = async (req, res, next) => {
+    console.log('=== createDoctor function called ===');
+    console.log('Request body:', req.body);
+    console.log('Request headers:', req.headers);
+    
     try {
-        const { userId, specialization, experience, qualification, about, consultationFee, availability, hospital } = req.body;
+        const { 
+            firstName, 
+            lastName, 
+            specialization, 
+            gender,
+            experience, 
+            phone,
+            email,
+            workingHours,
+            address
+        } = req.body;
         
-        // Check if user exists and has doctor role
-        const user = await User.findById(userId);
-        if (!user) {
-            return res.status(404).json({
-                success: false,
-                error: 'User not found'
-            });
-        }
-        
-        if (user.role !== 'doctor') {
+        // Validate required fields
+        if (!firstName || !lastName || !specialization || !gender || !experience || !phone || !email) {
             return res.status(400).json({
                 success: false,
-                error: 'User must have doctor role'
+                error: 'Please provide all required fields: firstName, lastName, specialization, gender, experience, phone, email'
             });
         }
-        
-        // Check if doctor profile already exists
-        const existingDoctor = await Doctor.findOne({ user: userId });
-        if (existingDoctor) {
+
+        // Check if email already exists
+        const existingUser = await User.findOne({ email });
+        if (existingUser) {
             return res.status(400).json({
                 success: false,
-                error: 'Doctor profile already exists for this user'
+                error: 'Email already exists'
             });
         }
         
-        const doctor = await Doctor.create({
-            user: userId,
-            specialization,
-            experience,
-            qualification,
-            about,
-            consultationFee,
-            availability,
-            hospital
+        // Create a new user for the doctor with default password
+        const defaultPassword = 'Doctor@123';
+        const user = await User.create({
+            firstName,
+            lastName,
+            email,
+            phone,
+            role: 'doctor',
+            password: defaultPassword,
+            isDefaultPassword: true
         });
         
+        // Parse working hours into availability format
+        let availabilityData = null;
+        if (workingHours) {
+            // Parse working hours format (e.g., "Mon-Fri:10:30-11:30")
+            const days = [];
+            
+            // Extract day information
+            if (workingHours.includes('Mon-Fri') || workingHours.includes('Monday-Friday')) {
+                days.push('Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday');
+            }
+            if (workingHours.includes('Sat')) days.push('Saturday');
+            if (workingHours.includes('Sun')) days.push('Sunday');
+            
+            // Extract time information - split by the first colon to handle time format with colons
+            const timeSlots = [];
+            const colonIndex = workingHours.indexOf(':');
+            if (colonIndex !== -1) {
+                const timeMatch = workingHours.substring(colonIndex + 1).trim();
+                
+                if (timeMatch && timeMatch.includes('-')) {
+                    const [startTime, endTime] = timeMatch.split('-');
+                    if (startTime && endTime) {
+                        timeSlots.push({
+                            startTime: startTime.trim(),
+                            endTime: endTime.trim()
+                        });
+                    }
+                }
+            }
+            
+            availabilityData = {
+                days,
+                timeSlots
+            };
+        }
+        
+        // Create hospital data if address is provided
+        let hospitalData = null;
+        if (address) {
+            hospitalData = {
+                name: null,
+                address: address,
+                phone: phone
+            };
+        }
+
+        // Create doctor with null values for unused fields
+        const doctor = await Doctor.create({
+            user: user._id,
+            specialization,
+            experience: parseInt(experience),
+            qualification: null,
+            about: null,
+            consultationFee: null,
+            availability: availabilityData,
+            hospital: hospitalData,
+            rating: 0,
+            totalReviews: 0,
+            isActive: true
+        });
+        
+        // Populate user data
         await doctor.populate({
             path: 'user',
             select: 'firstName lastName email phone'
@@ -183,7 +252,10 @@ exports.createDoctor = async (req, res, next) => {
         
         res.status(201).json({
             success: true,
-            data: doctor
+            data: doctor,
+            message: 'Doctor created successfully',
+            defaultPassword: 'Doctor@123',
+            note: 'Please share the default password with the doctor. They should change it on first login.'
         });
     } catch (error) {
         res.status(400).json({
@@ -207,25 +279,51 @@ exports.updateDoctor = async (req, res, next) => {
             });
         }
         
-        // Make sure user is doctor owner or admin
-        if (doctor.user.toString() !== req.user.id && req.user.role !== 'admin') {
-            return res.status(401).json({
-                success: false,
-                error: 'Not authorized to update this doctor profile'
+        // Update doctor information
+        const updateData = {};
+        
+        // Fields that can be updated in the Doctor model
+        if (req.body.specialization) updateData.specialization = req.body.specialization;
+        if (req.body.experience) updateData.experience = req.body.experience;
+        if (req.body.address) updateData['hospital.address'] = req.body.address;
+        if (req.body.hasOwnProperty('isActive')) updateData.isActive = req.body.isActive;
+        
+        // Handle availability updates
+        if (req.body.availabilityDays || req.body.timeSlots) {
+            updateData.availability = {
+                days: req.body.availabilityDays || doctor.availability?.days || [],
+                timeSlots: req.body.timeSlots || doctor.availability?.timeSlots || []
+            };
+        }
+        
+        // Update doctor record
+        doctor = await Doctor.findByIdAndUpdate(req.params.id, updateData, {
+            new: true,
+            runValidators: true
+        });
+        
+        // Update user information if provided
+        if (req.body.firstName || req.body.lastName || req.body.phone) {
+            const userUpdateData = {};
+            if (req.body.firstName) userUpdateData.firstName = req.body.firstName;
+            if (req.body.lastName) userUpdateData.lastName = req.body.lastName;
+            if (req.body.phone) userUpdateData.phone = req.body.phone;
+            
+            await User.findByIdAndUpdate(doctor.user, userUpdateData, {
+                new: true,
+                runValidators: true
             });
         }
         
-        doctor = await Doctor.findByIdAndUpdate(req.params.id, req.body, {
-            new: true,
-            runValidators: true
-        }).populate({
+        // Get updated doctor with populated user data
+        const updatedDoctor = await Doctor.findById(req.params.id).populate({
             path: 'user',
             select: 'firstName lastName email phone'
         });
         
         res.status(200).json({
             success: true,
-            data: doctor
+            data: updatedDoctor
         });
     } catch (error) {
         res.status(400).json({
@@ -249,11 +347,16 @@ exports.deleteDoctor = async (req, res, next) => {
             });
         }
         
+        // Also delete the associated user account
+        await User.findByIdAndDelete(doctor.user);
+        
+        // Delete the doctor record
         await doctor.deleteOne();
         
         res.status(200).json({
             success: true,
-            data: {}
+            data: {},
+            message: 'Doctor and associated user account deleted successfully'
         });
     } catch (error) {
         res.status(400).json({

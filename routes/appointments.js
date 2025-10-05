@@ -16,7 +16,7 @@ const { protect, authorize } = require('../middleware/auth');
 
 router
   .route('/')
-  .get(protect, authorize('patient', 'doctor', 'admin'), getAppointments);
+  .get(getAppointments);
 
 router
   .route('/book')
@@ -28,9 +28,9 @@ router
 
 router
   .route('/:id')
-  .get(protect, authorize('patient', 'doctor', 'admin'), getAppointment)
-  .put(protect, authorize('patient', 'doctor', 'admin'), updateAppointment)
-  .delete(protect, authorize('admin'), deleteAppointment);
+  .get(getAppointment)
+  .put(updateAppointment)
+  .delete(deleteAppointment);
 
 router
   .route('/:id/cancel')

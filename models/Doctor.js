@@ -4,7 +4,7 @@ const DoctorSchema = new mongoose.Schema({
   user: {
     type: mongoose.Schema.ObjectId,
     ref: 'User',
-    required: true,
+    required: false,
   },
   doctorId: {
     type: String,
@@ -45,15 +45,16 @@ const DoctorSchema = new mongoose.Schema({
   },
   qualification: {
     type: String,
-    required: [true, 'Please add qualification']
+    default: null
   },
   about: {
     type: String,
-    maxlength: [500, 'About cannot be more than 500 characters']
+    maxlength: [500, 'About cannot be more than 500 characters'],
+    default: null
   },
   consultationFee: {
     type: Number,
-    required: [true, 'Please add consultation fee']
+    default: null
   },
   availability: {
     days: [{
@@ -62,7 +63,12 @@ const DoctorSchema = new mongoose.Schema({
     }],
     timeSlots: [{
       startTime: String,
-      endTime: String
+      endTime: String,
+      date: String, // YYYY-MM-DD format
+      appointmentId: {
+        type: mongoose.Schema.ObjectId,
+        ref: 'Appointment'
+      }
     }]
   },
   hospital: {

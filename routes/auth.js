@@ -10,7 +10,8 @@ const {
   enable2FA,
   disable2FA,
   verify2FA,
-  get2FAStatus
+  get2FAStatus,
+  checkDefaultPassword
 } = require('../controllers/auth');
 
 const router = express.Router();
@@ -23,6 +24,7 @@ router.post('/logout', protect, logout);
 router.post('/google', googleLogin);
 router.put('/update-role', protect, updateRole);
 router.put('/changepassword', protect, changePassword);
+router.get('/check-default-password', protect, checkDefaultPassword);
 router.get('/me', protect, getMe);
 
 // 2FA routes

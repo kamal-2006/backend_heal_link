@@ -49,7 +49,7 @@ exports.login = async (req, res, next) => {
         }
 
         // Check for user
-        const user = await User.findOne({ email }).select('+password');
+        const user = await User.findOne({ email }).select('+password +isDefaultPassword');
 
         if (!user) {
             return res.status(401).json({ success: false, error: 'Invalid credentials' });
@@ -274,6 +274,27 @@ exports.updateRole = async (req, res, next) => {
   }
 };
 
+// @desc    Check if user has default password
+// @route   GET /api/v1/auth/check-default-password
+// @access  Private
+exports.checkDefaultPassword = async (req, res, next) => {
+  try {
+    const user = await User.findById(req.user.id).select('+isDefaultPassword');
+    
+    res.status(200).json({
+      success: true,
+      isDefaultPassword: user.isDefaultPassword || false,
+      role: user.role
+    });
+  } catch (error) {
+    console.error('Check default password error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Server error'
+    });
+  }
+};
+
 // @desc    Change password
 // @route   PUT /api/v1/auth/changepassword
 // @access  Private
@@ -312,11 +333,16 @@ exports.changePassword = async (req, res, next) => {
 
     // Update password
     user.password = newPassword;
+    // If this is a doctor changing from default password, mark as not default
+    if (user.role === 'doctor' && user.isDefaultPassword) {
+      user.isDefaultPassword = false;
+    }
     await user.save();
 
     res.status(200).json({
       success: true,
-      message: 'Password updated successfully'
+      message: 'Password updated successfully',
+      isDefaultPassword: user.isDefaultPassword
     });
   } catch (error) {
     console.error('Change password error:', error);
@@ -343,10 +369,30 @@ const sendTokenResponse = (user, statusCode, res) => {
         options.secure = true;
     }
 
+    // Prepare response data
+    const responseData = { 
+        success: true, 
+        token, 
+        role: user.role,
+        user: {
+            id: user._id,
+            firstName: user.firstName,
+            lastName: user.lastName,
+            email: user.email,
+            role: user.role
+        }
+    };
+
+    // Add default password information for doctors
+    if (user.role === 'doctor' && user.isDefaultPassword) {
+        responseData.requiresPasswordChange = true;
+        responseData.message = 'Please change your password for security';
+    }
+
     res
         .status(statusCode)
         .cookie('token', token, options)
-        .json({ success: true, token, role: user.role });
+        .json(responseData);
 };
 
 // @desc    Enable 2FA
