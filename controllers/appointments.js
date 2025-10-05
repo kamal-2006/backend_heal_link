@@ -1,5 +1,7 @@
 const Appointment = require('../models/Appointment');
 const User = require('../models/User');
+const Doctor = require('../models/Doctor');
+const Patient = require('../models/Patient');
 
 // @desc    Get all appointments
 // @route   GET /api/v1/appointments
@@ -155,24 +157,46 @@ exports.getAppointment = async (req, res, next) => {
 // @access  Private
 exports.bookAppointment = async (req, res, next) => {
     try {
-        // Set patient to current user if they are a patient
-        if (req.user.role === 'patient') {
-            req.body.patient = req.user.id;
+        // Get patient record for current user
+        const patient = await Patient.findOne({ user: req.user.id });
+        if (!patient) {
+            return res.status(404).json({
+                success: false,
+                error: 'Patient profile not found'
+            });
         }
 
-        // Check if doctor exists
-        const doctor = await User.findById(req.body.doctor);
-        if (!doctor || doctor.role !== 'doctor') {
+        // Resolve doctor: support both Doctor document ID and Doctor's User ID
+        const doctorIdentifier = req.body.doctor;
+        let doctor = null;
+        if (doctorIdentifier) {
+            // Try by Doctor document ID first
+            doctor = await Doctor.findById(doctorIdentifier).populate('user');
+            if (!doctor) {
+                // Fallback: try by User ID linked to a doctor profile
+                doctor = await Doctor.findOne({ user: doctorIdentifier }).populate('user');
+            }
+        }
+        if (!doctor) {
             return res.status(404).json({
                 success: false,
                 error: 'Doctor not found'
             });
         }
 
+        // Validate and normalize date
+        const appointmentDate = new Date(req.body.date);
+        if (isNaN(appointmentDate.getTime())) {
+            return res.status(400).json({
+                success: false,
+                error: 'Invalid appointment date'
+            });
+        }
+
         // Check for existing appointment at the same time
         const existingAppointment = await Appointment.findOne({
-            doctor: req.body.doctor,
-            date: new Date(req.body.date),
+            doctor: doctor.user._id, // Use the user ID from doctor
+            date: appointmentDate,
             status: { $ne: 'cancelled' } // Not cancelled
         });
 
@@ -183,12 +207,29 @@ exports.bookAppointment = async (req, res, next) => {
             });
         }
 
-        // If doctor is creating appointment, they should specify the patient
-        const appointment = await Appointment.create(req.body);
+        // Create appointment with proper references
+        const appointment = await Appointment.create({
+            doctor: doctor.user._id, // Use the user ID from doctor
+            patient: req.user.id, // Current user is the patient
+            date: appointmentDate,
+            reason: req.body.reason,
+            notes: req.body.notes || ''
+        });
+
+        // Populate the appointment for the response
+        const populatedAppointment = await Appointment.findById(appointment._id)
+            .populate({
+                path: 'doctor',
+                select: 'firstName lastName email'
+            })
+            .populate({
+                path: 'patient',
+                select: 'firstName lastName email'
+            });
         
         res.status(201).json({
             success: true,
-            data: appointment
+            data: populatedAppointment
         });
     } catch (error) {
         res.status(400).json({

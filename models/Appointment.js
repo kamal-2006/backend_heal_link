@@ -15,6 +15,13 @@ const AppointmentSchema = new mongoose.Schema({
     type: Date,
     required: true,
   },
+  reason: {
+    type: String,
+    required: [true, 'Please add a reason for the appointment'],
+  },
+  notes: {
+    type: String,
+  },
   status: {
     type: String,
     enum: ['pending', 'confirmed', 'cancelled'],

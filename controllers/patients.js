@@ -392,3 +392,107 @@ exports.updateMyProfile = async (req, res, next) => {
         });
     }
 };
+
+// @desc    Get notification preferences
+// @route   GET /api/v1/patients/me/notifications
+// @access  Private (Patient only)
+exports.getNotificationPreferences = async (req, res, next) => {
+    try {
+        // Find patient by user ID
+        const patient = await Patient.findOne({ user: req.user.id });
+
+        if (!patient) {
+            return res.status(404).json({
+                success: false,
+                error: 'Patient profile not found'
+            });
+        }
+
+        // Return notification preferences with defaults if not set
+        const notificationPreferences = {
+            emailNotifications: patient.settings?.notificationPreferences?.emailNotifications ?? true,
+            smsNotifications: patient.settings?.notificationPreferences?.smsNotifications ?? false,
+            pushNotifications: patient.settings?.notificationPreferences?.pushNotifications ?? true,
+            appointmentReminders: patient.settings?.notificationPreferences?.appointmentReminders ?? true,
+            testResults: patient.settings?.notificationPreferences?.testResults ?? true
+        };
+
+        res.status(200).json({
+            success: true,
+            data: notificationPreferences
+        });
+    } catch (error) {
+        console.error('Error getting notification preferences:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Server Error'
+        });
+    }
+};
+
+// @desc    Update notification preferences
+// @route   PUT /api/v1/patients/me/notifications
+// @access  Private (Patient only)
+exports.updateNotificationPreferences = async (req, res, next) => {
+    try {
+        const {
+            emailNotifications,
+            smsNotifications,
+            pushNotifications,
+            appointmentReminders,
+            testResults
+        } = req.body;
+
+        // Find patient by user ID
+        let patient = await Patient.findOne({ user: req.user.id });
+
+        if (!patient) {
+            return res.status(404).json({
+                success: false,
+                error: 'Patient profile not found'
+            });
+        }
+
+        // Update notification preferences
+        const updateData = {
+            'settings.notificationPreferences.emailNotifications': emailNotifications,
+            'settings.notificationPreferences.smsNotifications': smsNotifications,
+            'settings.notificationPreferences.pushNotifications': pushNotifications,
+            'settings.notificationPreferences.appointmentReminders': appointmentReminders,
+            'settings.notificationPreferences.testResults': testResults
+        };
+
+        // Filter out undefined values
+        Object.keys(updateData).forEach(key => {
+            if (updateData[key] === undefined) {
+                delete updateData[key];
+            }
+        });
+
+        patient = await Patient.findOneAndUpdate(
+            { user: req.user.id },
+            { $set: updateData },
+            { new: true, runValidators: true }
+        );
+
+        // Return updated notification preferences
+        const notificationPreferences = {
+            emailNotifications: patient.settings?.notificationPreferences?.emailNotifications ?? true,
+            smsNotifications: patient.settings?.notificationPreferences?.smsNotifications ?? false,
+            pushNotifications: patient.settings?.notificationPreferences?.pushNotifications ?? true,
+            appointmentReminders: patient.settings?.notificationPreferences?.appointmentReminders ?? true,
+            testResults: patient.settings?.notificationPreferences?.testResults ?? true
+        };
+
+        res.status(200).json({
+            success: true,
+            data: notificationPreferences
+        });
+    } catch (error) {
+        console.error('Error updating notification preferences:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Server Error'
+        });
+    }
+};

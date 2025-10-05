@@ -108,6 +108,10 @@ const PatientSchema = new mongoose.Schema({
       pushNotifications: {
         type: Boolean,
         default: true
+      },
+      testResults: {
+        type: Boolean,
+        default: true
       }
     },
     privacySettings: {

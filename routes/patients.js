@@ -8,7 +8,9 @@ const {
   getMyProfile,
   updateMyProfile,
   getPatientDashboard,
-  updatePatientSettings
+  updatePatientSettings,
+  getNotificationPreferences,
+  updateNotificationPreferences
 } = require('../controllers/patients');
 
 const router = express.Router();
@@ -24,6 +26,11 @@ router
 router
   .route('/me/settings')
   .put(protect, authorize('patient'), updatePatientSettings);
+
+router
+  .route('/me/notifications')
+  .get(protect, authorize('patient'), getNotificationPreferences)
+  .put(protect, authorize('patient'), updateNotificationPreferences);
 
 router
   .route('/dashboard')
