@@ -6,7 +6,11 @@ const {
   googleLogin,
   updateRole,
   logout,
-  changePassword
+  changePassword,
+  enable2FA,
+  disable2FA,
+  verify2FA,
+  get2FAStatus
 } = require('../controllers/auth');
 
 const router = express.Router();
@@ -20,5 +24,11 @@ router.post('/google', googleLogin);
 router.put('/update-role', protect, updateRole);
 router.put('/changepassword', protect, changePassword);
 router.get('/me', protect, getMe);
+
+// 2FA routes
+router.post('/2fa/enable', protect, enable2FA);
+router.post('/2fa/disable', protect, disable2FA);
+router.post('/2fa/verify', protect, verify2FA);
+router.get('/2fa/status', protect, get2FAStatus);
 
 module.exports = router;

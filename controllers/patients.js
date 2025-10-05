@@ -312,6 +312,9 @@ exports.getMyProfile = async (req, res, next) => {
 exports.updateMyProfile = async (req, res, next) => {
     try {
         const { 
+            firstName,
+            lastName,
+            phone,
             dateOfBirth, 
             gender,
             bloodType, 
@@ -333,10 +336,41 @@ exports.updateMyProfile = async (req, res, next) => {
         // Find patient by user ID
         let patient = await Patient.findOne({ user: req.user.id });
 
+        // Update User model fields if provided
+        if (firstName !== undefined || lastName !== undefined || phone !== undefined) {
+            const userUpdateData = {};
+            if (firstName !== undefined) userUpdateData.firstName = firstName;
+            if (lastName !== undefined) userUpdateData.lastName = lastName;
+            if (phone !== undefined) userUpdateData.phone = phone;
+
+            await User.findByIdAndUpdate(
+                req.user.id,
+                userUpdateData,
+                { new: true, runValidators: true }
+            );
+        }
+
+        // Sanitize and validate enum fields
+        const sanitizeEnumField = (value, validValues) => {
+            if (!value || value.trim() === '') return undefined;
+            
+            // Check if the value exists in valid values (case-insensitive)
+            const found = validValues.find(v => v.toLowerCase() === value.toLowerCase());
+            return found || undefined;
+        };
+
+        // Valid enum values
+        const validGenders = ['Male', 'Female', 'Other', 'Prefer not to say'];
+        const validMaritalStatuses = ['Single', 'Married', 'Divorced', 'Widowed', 'Other'];
+        const validSmokingStatuses = ['Never', 'Former', 'Current', 'Unknown'];
+        const validAlcoholUses = ['Never', 'Occasionally', 'Regularly', 'Unknown'];
+        const validBloodTypes = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
+
+        // Update Patient model fields
         const updateData = {
             dateOfBirth,
-            gender,
-            bloodType,
+            gender: sanitizeEnumField(gender, validGenders),
+            bloodType: sanitizeEnumField(bloodType, validBloodTypes),
             height,
             weight,
             address,
@@ -346,10 +380,10 @@ exports.updateMyProfile = async (req, res, next) => {
             emergencyContact,
             insuranceInfo,
             preferredLanguage,
-            maritalStatus,
+            maritalStatus: sanitizeEnumField(maritalStatus, validMaritalStatuses),
             occupation,
-            smokingStatus,
-            alcoholUse
+            smokingStatus: sanitizeEnumField(smokingStatus, validSmokingStatuses),
+            alcoholUse: sanitizeEnumField(alcoholUse, validAlcoholUses)
         };
 
         // Remove undefined values

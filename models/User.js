@@ -29,7 +29,7 @@ const UserSchema = new mongoose.Schema({
   },
   role: {
     type: String,
-    enum: ['patient', 'doctor'],
+    enum: ['patient', 'doctor', 'nurse'],
     default: 'patient',
   },
   password: {
@@ -53,6 +53,22 @@ const UserSchema = new mongoose.Schema({
     type: Boolean,
     default: false,
   },
+  // 2FA fields
+  twoFactorSecret: {
+    type: String,
+    select: false,
+  },
+  twoFactorEnabled: {
+    type: Boolean,
+    default: false,
+  },
+  backupCodes: [{
+    code: String,
+    used: {
+      type: Boolean,
+      default: false,
+    },
+  }],
   createdAt: {
     type: Date,
     default: Date.now,

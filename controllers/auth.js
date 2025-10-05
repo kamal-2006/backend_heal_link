@@ -1,5 +1,7 @@
 const User = require('../models/User');
 const { OAuth2Client } = require('google-auth-library');
+const speakeasy = require('speakeasy');
+const QRCode = require('qrcode');
 
 // @desc    Register user
 // @route   POST /api/v1/auth/register
@@ -345,4 +347,187 @@ const sendTokenResponse = (user, statusCode, res) => {
         .status(statusCode)
         .cookie('token', token, options)
         .json({ success: true, token, role: user.role });
+};
+
+// @desc    Enable 2FA
+// @route   POST /api/v1/auth/2fa/enable
+// @access  Private
+exports.enable2FA = async (req, res, next) => {
+    try {
+        const user = await User.findById(req.user.id);
+
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                error: 'User not found'
+            });
+        }
+
+        if (user.twoFactorEnabled) {
+            return res.status(400).json({
+                success: false,
+                error: 'Two-factor authentication is already enabled'
+            });
+        }
+
+        // Generate secret
+        const secret = speakeasy.generateSecret({
+            name: `HealLink (${user.email})`,
+            issuer: 'HealLink',
+            length: 20
+        });
+
+        // Generate backup codes
+        const backupCodes = [];
+        for (let i = 0; i < 8; i++) {
+            const code = Math.random().toString(36).substring(2, 10).toUpperCase();
+            backupCodes.push({ code, used: false });
+        }
+
+        // Generate QR code
+        const qrCodeUrl = await QRCode.toDataURL(secret.otpauth_url);
+
+        // Save secret to user (but don't enable 2FA yet)
+        user.twoFactorSecret = secret.base32;
+        user.backupCodes = backupCodes;
+        await user.save();
+
+        res.status(200).json({
+            success: true,
+            data: {
+                qrCodeUrl,
+                secret: secret.base32,
+                backupCodes: backupCodes.map(bc => bc.code)
+            }
+        });
+    } catch (error) {
+        console.error('Error enabling 2FA:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Server error'
+        });
+    }
+};
+
+// @desc    Verify and complete 2FA setup
+// @route   POST /api/v1/auth/2fa/verify
+// @access  Private
+exports.verify2FA = async (req, res, next) => {
+    try {
+        const { code } = req.body;
+        const user = await User.findById(req.user.id).select('+twoFactorSecret');
+
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                error: 'User not found'
+            });
+        }
+
+        if (!user.twoFactorSecret) {
+            return res.status(400).json({
+                success: false,
+                error: 'Two-factor authentication setup not initiated'
+            });
+        }
+
+        // Verify the code
+        const verified = speakeasy.totp.verify({
+            secret: user.twoFactorSecret,
+            encoding: 'base32',
+            token: code,
+            window: 2
+        });
+
+        if (!verified) {
+            return res.status(400).json({
+                success: false,
+                error: 'Invalid verification code'
+            });
+        }
+
+        // Enable 2FA
+        user.twoFactorEnabled = true;
+        await user.save();
+
+        res.status(200).json({
+            success: true,
+            message: 'Two-factor authentication enabled successfully'
+        });
+    } catch (error) {
+        console.error('Error verifying 2FA:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Server error'
+        });
+    }
+};
+
+// @desc    Disable 2FA
+// @route   POST /api/v1/auth/2fa/disable
+// @access  Private
+exports.disable2FA = async (req, res, next) => {
+    try {
+        const user = await User.findById(req.user.id);
+
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                error: 'User not found'
+            });
+        }
+
+        if (!user.twoFactorEnabled) {
+            return res.status(400).json({
+                success: false,
+                error: 'Two-factor authentication is not enabled'
+            });
+        }
+
+        // Disable 2FA and clear related data
+        user.twoFactorEnabled = false;
+        user.twoFactorSecret = undefined;
+        user.backupCodes = [];
+        await user.save();
+
+        res.status(200).json({
+            success: true,
+            message: 'Two-factor authentication disabled successfully'
+        });
+    } catch (error) {
+        console.error('Error disabling 2FA:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Server error'
+        });
+    }
+};
+
+// @desc    Get 2FA status
+// @route   GET /api/v1/auth/2fa/status
+// @access  Private
+exports.get2FAStatus = async (req, res, next) => {
+    try {
+        const user = await User.findById(req.user.id);
+
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                error: 'User not found'
+            });
+        }
+
+        res.status(200).json({
+            success: true,
+            data: {
+                enabled: user.twoFactorEnabled
+            }
+        });
+    } catch (error) {
+        console.error('Error getting 2FA status:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Server error'
+        });
+    }
 };
