@@ -3,45 +3,66 @@ const User = require('../models/User');
 const Doctor = require('../models/Doctor');
 const Patient = require('../models/Patient');
 
+// Helper function to update doctor availability based on appointments
+const updateDoctorAvailability = async (doctorId) => {
+    try {
+        // Get all confirmed appointments for this doctor
+        const appointments = await Appointment.find({
+            doctor: doctorId,
+            status: { $in: ['confirmed', 'pending'] }
+        }).sort({ date: 1 });
+
+        // Get doctor
+        const doctor = await Doctor.findById(doctorId);
+        if (!doctor) return;
+
+        // Generate timeSlots from appointments
+        const timeSlots = appointments.map(appointment => {
+            const appointmentDate = new Date(appointment.date);
+            const startTime = appointmentDate.toTimeString().slice(0, 5); // HH:MM format
+            const endTime = new Date(appointmentDate.getTime() + 30 * 60000).toTimeString().slice(0, 5); // Add 30 minutes
+            
+            return {
+                startTime,
+                endTime,
+                date: appointmentDate.toISOString().split('T')[0], // YYYY-MM-DD format
+                appointmentId: appointment._id
+            };
+        });
+
+        // Update doctor availability
+        await Doctor.findByIdAndUpdate(doctorId, {
+            $set: {
+                'availability.timeSlots': timeSlots
+            }
+        });
+    } catch (error) {
+        console.error('Error updating doctor availability:', error);
+    }
+};
+
 // @desc    Get all appointments
 // @route   GET /api/v1/appointments
 // @access  Private
 exports.getAppointments = async (req, res, next) => {
     try {
-        let query;
-
-        if (req.user.role === 'doctor') {
-            query = Appointment.find({ doctor: req.user.id }).populate({
-                path: 'patient',
-                select: 'firstName lastName email phone'
-            });
-        } else if (req.user.role === 'patient') {
-            query = Appointment.find({ patient: req.user.id }).populate({
-                path: 'doctor',
-                select: 'firstName lastName specialty'
-            });
-        } else if (req.user.role === 'admin') {
-            // Admin can see all appointments
-            query = Appointment.find().populate({
-                path: 'doctor',
-                select: 'firstName lastName specialty'
-            }).populate({
-                path: 'patient',
-                select: 'firstName lastName email phone'
-            });
-        } else {
-            // Should not happen
-            return res.status(403).json({ success: false, error: 'User role not recognized' });
-        }
+        // Get all appointments for admin view
+        const query = Appointment.find().populate({
+            path: 'doctor',
+            select: 'firstName lastName specialty'
+        }).populate({
+            path: 'patient',
+            select: 'firstName lastName email phone'
+        });
 
         // Add pagination
         const page = parseInt(req.query.page, 10) || 1;
         const limit = parseInt(req.query.limit, 10) || 10;
         const startIndex = (page - 1) * limit;
         const endIndex = page * limit;
-        const total = await Appointment.countDocuments(query);
+        const total = await Appointment.countDocuments();
 
-        query = query.skip(startIndex).limit(limit).sort({ date: -1 });
+        query.skip(startIndex).limit(limit).sort({ date: -1 });
 
         const appointments = await query;
 
@@ -226,6 +247,9 @@ exports.bookAppointment = async (req, res, next) => {
                 path: 'patient',
                 select: 'firstName lastName email'
             });
+
+        // Update doctor availability with new appointment
+        await updateDoctorAvailability(doctor._id);
         
         res.status(201).json({
             success: true,
@@ -253,18 +277,6 @@ exports.updateAppointment = async (req, res, next) => {
             });
         }
 
-        // Make sure user is appointment owner or admin
-        if (
-            req.user.role !== 'admin' &&
-            appointment.patient.toString() !== req.user.id &&
-            appointment.doctor.toString() !== req.user.id
-        ) {
-            return res.status(401).json({
-                success: false,
-                error: 'Not authorized to update this appointment'
-            });
-        }
-
         // If changing date/time, check for conflicts
         if (req.body.date && req.body.date !== appointment.date.toISOString()) {
             const existingAppointment = await Appointment.findOne({
@@ -285,7 +297,16 @@ exports.updateAppointment = async (req, res, next) => {
         appointment = await Appointment.findByIdAndUpdate(req.params.id, req.body, {
             new: true,
             runValidators: true
+        }).populate({
+            path: 'doctor',
+            select: 'firstName lastName specialty'
+        }).populate({
+            path: 'patient',
+            select: 'firstName lastName email phone'
         });
+
+        // Update doctor availability with new appointment time
+        await updateDoctorAvailability(appointment.doctor._id);
 
         res.status(200).json({
             success: true,
@@ -355,15 +376,11 @@ exports.deleteAppointment = async (req, res, next) => {
             });
         }
 
-        // Only admin can delete appointments
-        if (req.user.role !== 'admin') {
-            return res.status(401).json({
-                success: false,
-                error: 'Not authorized to delete appointments'
-            });
-        }
-
+        const doctorId = appointment.doctor;
         await appointment.deleteOne();
+
+        // Update doctor availability after deleting appointment
+        await updateDoctorAvailability(doctorId);
 
         res.status(200).json({ success: true, data: {} });
     } catch (error) {

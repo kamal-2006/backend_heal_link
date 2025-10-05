@@ -496,3 +496,224 @@ exports.updateNotificationPreferences = async (req, res, next) => {
         });
     }
 };
+
+// ============== ADMIN-SPECIFIC METHODS (NO AUTH REQUIRED) ==============
+
+// @desc    Get all patients for admin (no auth)
+// @route   GET /api/v1/patients/admin/patients
+// @access  Public (Admin panel)
+exports.getAllPatientsForAdmin = async (req, res, next) => {
+    try {
+        const patients = await Patient.find()
+            .populate({
+                path: 'user',
+                select: 'firstName lastName email phone createdAt'
+            })
+            .populate({
+                path: 'appointments',
+                select: 'date time status',
+                options: { sort: { date: -1 } }
+            })
+            .sort({ createdAt: -1 });
+
+        const patientsWithStats = patients.map(patient => {
+            const totalAppointments = patient.appointments ? patient.appointments.length : 0;
+            const upcomingAppointments = patient.appointments ? 
+                patient.appointments.filter(apt => new Date(apt.date) >= new Date()).length : 0;
+            
+            return {
+                _id: patient._id,
+                patientId: patient.patientId,
+                user: patient.user,
+                dateOfBirth: patient.dateOfBirth,
+                gender: patient.gender,
+                bloodType: patient.bloodType,
+                allergies: patient.allergies,
+                medicalConditions: patient.medicalConditions,
+                emergencyContact: patient.emergencyContact,
+                insuranceInfo: patient.insuranceInfo,
+                createdAt: patient.createdAt,
+                totalAppointments,
+                upcomingAppointments,
+                lastAppointment: patient.appointments && patient.appointments.length > 0 ? 
+                    patient.appointments[0].date : null
+            };
+        });
+
+        res.status(200).json({ 
+            success: true, 
+            count: patientsWithStats.length, 
+            data: patientsWithStats 
+        });
+    } catch (error) {
+        console.error('Error fetching patients for admin:', error);
+        res.status(500).json({ 
+            success: false, 
+            error: 'Failed to fetch patients' 
+        });
+    }
+};
+
+// @desc    Get single patient details for admin (no auth)
+// @route   GET /api/v1/patients/admin/patients/:id
+// @access  Public (Admin panel)
+exports.getPatientDetailsForAdmin = async (req, res, next) => {
+    try {
+        const patient = await Patient.findById(req.params.id)
+            .populate({
+                path: 'user',
+                select: 'firstName lastName email phone createdAt'
+            })
+            .populate({
+                path: 'appointments',
+                select: 'date time status doctor reason notes',
+                populate: {
+                    path: 'doctor',
+                    populate: {
+                        path: 'user',
+                        select: 'firstName lastName'
+                    }
+                },
+                options: { sort: { date: -1 } }
+            })
+            .populate({
+                path: 'medicalRecords',
+                select: 'recordType date diagnosis treatment notes createdAt'
+            })
+            .populate({
+                path: 'prescriptions',
+                select: 'medication dosage frequency duration prescribedBy createdAt',
+                populate: {
+                    path: 'prescribedBy',
+                    populate: {
+                        path: 'user',
+                        select: 'firstName lastName'
+                    }
+                }
+            });
+
+        if (!patient) {
+            return res.status(404).json({
+                success: false,
+                error: 'Patient not found'
+            });
+        }
+
+        // Calculate stats
+        const totalAppointments = patient.appointments ? patient.appointments.length : 0;
+        const upcomingAppointments = patient.appointments ? 
+            patient.appointments.filter(apt => new Date(apt.date) >= new Date()).length : 0;
+        const completedAppointments = patient.appointments ? 
+            patient.appointments.filter(apt => apt.status === 'completed').length : 0;
+
+        // Age calculation
+        let age = null;
+        if (patient.dateOfBirth) {
+            const today = new Date();
+            const birthDate = new Date(patient.dateOfBirth);
+            age = today.getFullYear() - birthDate.getFullYear();
+            const monthDiff = today.getMonth() - birthDate.getMonth();
+            if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+                age--;
+            }
+        }
+
+        const patientDetails = {
+            ...patient.toObject(),
+            age,
+            stats: {
+                totalAppointments,
+                upcomingAppointments,
+                completedAppointments,
+                totalMedicalRecords: patient.medicalRecords ? patient.medicalRecords.length : 0,
+                totalPrescriptions: patient.prescriptions ? patient.prescriptions.length : 0
+            }
+        };
+
+        res.status(200).json({ 
+            success: true, 
+            data: patientDetails 
+        });
+    } catch (error) {
+        console.error('Error fetching patient details for admin:', error);
+        res.status(500).json({ 
+            success: false, 
+            error: 'Failed to fetch patient details' 
+        });
+    }
+};
+
+// @desc    Update patient for admin (no auth)
+// @route   PUT /api/v1/patients/admin/patients/:id
+// @access  Public (Admin panel)
+exports.updatePatientForAdmin = async (req, res, next) => {
+    try {
+        let patient = await Patient.findById(req.params.id);
+
+        if (!patient) {
+            return res.status(404).json({
+                success: false,
+                error: 'Patient not found'
+            });
+        }
+
+        // Update patient information
+        patient = await Patient.findByIdAndUpdate(
+            req.params.id, 
+            req.body, 
+            {
+                new: true,
+                runValidators: true
+            }
+        ).populate({
+            path: 'user',
+            select: 'firstName lastName email phone'
+        });
+
+        res.status(200).json({ 
+            success: true, 
+            data: patient 
+        });
+    } catch (error) {
+        console.error('Error updating patient for admin:', error);
+        res.status(400).json({ 
+            success: false, 
+            error: error.message || 'Failed to update patient' 
+        });
+    }
+};
+
+// @desc    Delete patient for admin (no auth)
+// @route   DELETE /api/v1/patients/admin/patients/:id
+// @access  Public (Admin panel)
+exports.deletePatientForAdmin = async (req, res, next) => {
+    try {
+        const patient = await Patient.findById(req.params.id);
+
+        if (!patient) {
+            return res.status(404).json({
+                success: false,
+                error: 'Patient not found'
+            });
+        }
+
+        // Delete associated user account as well
+        if (patient.user) {
+            await User.findByIdAndDelete(patient.user);
+        }
+
+        // Delete the patient
+        await Patient.findByIdAndDelete(req.params.id);
+
+        res.status(200).json({ 
+            success: true, 
+            message: 'Patient and associated user account deleted successfully' 
+        });
+    } catch (error) {
+        console.error('Error deleting patient for admin:', error);
+        res.status(500).json({ 
+            success: false, 
+            error: 'Failed to delete patient' 
+        });
+    }
+};

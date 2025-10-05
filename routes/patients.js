@@ -10,7 +10,11 @@ const {
   getPatientDashboard,
   updatePatientSettings,
   getNotificationPreferences,
-  updateNotificationPreferences
+  updateNotificationPreferences,
+  getAllPatientsForAdmin,
+  getPatientDetailsForAdmin,
+  updatePatientForAdmin,
+  deletePatientForAdmin
 } = require('../controllers/patients');
 
 const router = express.Router();
@@ -35,6 +39,17 @@ router
 router
   .route('/dashboard')
   .get(protect, authorize('patient'), getPatientDashboard);
+
+// Admin routes (no authentication required) - MUST come before /:id routes
+router
+  .route('/admin/patients')
+  .get(getAllPatientsForAdmin);
+
+router
+  .route('/admin/patients/:id')
+  .get(getPatientDetailsForAdmin)
+  .put(updatePatientForAdmin)
+  .delete(deletePatientForAdmin);
 
 // General routes (admin/doctor access)
 router

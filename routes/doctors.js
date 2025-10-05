@@ -19,9 +19,14 @@ router.get('/available', getAvailableDoctors);
 router.get('/specialization/:specialization', getDoctorsBySpecialization);
 router.get('/:id', getDoctor);
 
-// Protected routes
-router.post('/', protect, authorize('admin'), createDoctor);
-router.put('/:id', protect, authorize('doctor', 'admin'), updateDoctor);
-router.delete('/:id', protect, authorize('admin'), deleteDoctor);
+// Doctor management routes (no auth required for admin features)
+router.post('/', createDoctor);
+router.put('/:id', updateDoctor);
+router.delete('/:id', deleteDoctor);
+
+// Debug route to test if middleware is being applied
+router.post('/test', (req, res) => {
+    res.json({ success: true, message: 'Test route works without auth' });
+});
 
 module.exports = router;

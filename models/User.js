@@ -29,7 +29,7 @@ const UserSchema = new mongoose.Schema({
   },
   role: {
     type: String,
-    enum: ['patient', 'doctor'],
+    enum: ['patient', 'doctor', 'admin'],
     default: 'patient',
   },
   password: {
@@ -50,6 +50,10 @@ const UserSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.Mixed,
   },
   isGoogleUser: {
+    type: Boolean,
+    default: false,
+  },
+  isDefaultPassword: {
     type: Boolean,
     default: false,
   },

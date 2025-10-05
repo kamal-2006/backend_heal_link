@@ -6,7 +6,8 @@ const {
   googleLogin,
   updateRole,
   logout,
-  changePassword
+  changePassword,
+  checkDefaultPassword
 } = require('../controllers/auth');
 
 const router = express.Router();
@@ -19,6 +20,7 @@ router.post('/logout', protect, logout);
 router.post('/google', googleLogin);
 router.put('/update-role', protect, updateRole);
 router.put('/changepassword', protect, changePassword);
+router.get('/check-default-password', protect, checkDefaultPassword);
 router.get('/me', protect, getMe);
 
 module.exports = router;
