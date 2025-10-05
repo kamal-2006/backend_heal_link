@@ -2,3 +2,9 @@ node_modules
 config/config.env
 npm-debug.log*
 *.log
+
+# Ignore backend test scripts
+test_api.js
+testBookingAPI.js
+testBookingFlow.js
+createTestAppointments.js

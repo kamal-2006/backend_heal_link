@@ -53,6 +53,41 @@ const UserSchema = new mongoose.Schema({
     type: Boolean,
     default: false,
   },
+  // Doctor-specific fields
+  bio: {
+    type: String,
+    maxlength: [1000, 'Bio cannot be more than 1000 characters'],
+  },
+  specialty: {
+    type: String,
+  },
+  department: {
+    type: String,
+  },
+  experience: {
+    type: Number,
+    min: [0, 'Experience cannot be negative'],
+  },
+  qualifications: [{
+    type: String,
+  }],
+  languages: [{
+    type: String,
+  }],
+  licenseNumber: {
+    type: String,
+  },
+  consultationHours: {
+    type: String,
+  },
+  availabilityStatus: {
+    type: String,
+    enum: ['on-duty', 'off-duty', 'busy'],
+    default: 'on-duty',
+  },
+  location: {
+    type: String,
+  },
   createdAt: {
     type: Date,
     default: Date.now,
