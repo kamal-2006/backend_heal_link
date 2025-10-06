@@ -26,6 +26,9 @@ app.use(
   })
 );
 
+// Serve static files from uploads directory
+app.use('/uploads', express.static('uploads'));
+
 // Mount routers
 app.use("/api/v1/auth", require("./routes/auth"));
 app.use("/api/v1/doctor", require("./routes/doctor"));

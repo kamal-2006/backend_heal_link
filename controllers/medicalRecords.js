@@ -321,3 +321,287 @@ exports.downloadMedicalRecord = asyncHandler(async (req, res, next) => {
   // Send file
   res.download(filePath);
 });
+
+// @desc    Patient uploads their own medical report
+// @route   POST /api/v1/records/patient/upload
+// @access  Private (patients only)
+exports.patientUploadReport = asyncHandler(async (req, res, next) => {
+  // Ensure user is a patient
+  if (req.user.role !== 'patient') {
+    return next(new ErrorResponse('Only patients can upload their own reports', 401));
+  }
+
+  // Get patient profile
+  const patient = await Patient.findOne({ user: req.user.id });
+  if (!patient) {
+    return next(new ErrorResponse('Patient profile not found', 404));
+  }
+
+  // Validate required fields
+  const { title, recordType, description, reportDate, notes } = req.body;
+  
+  if (!title || !recordType) {
+    return next(new ErrorResponse('Please provide title and record type', 400));
+  }
+
+  // Check if files were uploaded
+  if (!req.files || req.files.length === 0) {
+    return next(new ErrorResponse('Please upload at least one file', 400));
+  }
+
+  // Create medical record entry
+  const recordData = {
+    patient: patient._id,
+    doctor: req.user.id, // For patient uploads, set doctor as the patient user
+    title,
+    recordType,
+    description: description || '',
+    date: reportDate ? new Date(reportDate) : new Date(),
+    notes: notes || '',
+    status: 'new'
+  };
+
+  // If only one file, store as single fileUrl, otherwise store as array
+  if (req.files.length === 1) {
+    recordData.fileUrl = `/uploads/medical-reports/${req.files[0].filename}`;
+  } else {
+    // For multiple files, we'll store the URLs as a JSON string in the fileUrl field
+    // In a production app, you might want to modify the schema to support multiple files
+    const fileUrls = req.files.map(file => `/uploads/medical-reports/${file.filename}`);
+    recordData.fileUrl = JSON.stringify(fileUrls);
+  }
+
+  const record = await MedicalRecord.create(recordData);
+
+  // Populate the response
+  const populatedRecord = await MedicalRecord.findById(record._id)
+    .populate({
+      path: 'patient',
+      select: 'user',
+      populate: {
+        path: 'user',
+        select: 'name email'
+      }
+    });
+
+  res.status(201).json({
+    success: true,
+    data: populatedRecord,
+    uploadedFiles: req.files.map(file => ({
+      originalName: file.originalname,
+      filename: file.filename,
+      size: file.size,
+      url: `/uploads/medical-reports/${file.filename}`
+    }))
+  });
+});
+
+// @desc    Get patient's own medical records
+// @route   GET /api/v1/records/patient/my-records
+// @access  Private (patients only)
+exports.getPatientOwnRecords = asyncHandler(async (req, res, next) => {
+  // Ensure user is a patient
+  if (req.user.role !== 'patient') {
+    return next(new ErrorResponse('Only patients can access this endpoint', 401));
+  }
+
+  // Get patient profile
+  const patient = await Patient.findOne({ user: req.user.id });
+  if (!patient) {
+    return next(new ErrorResponse('Patient profile not found', 404));
+  }
+
+  // Build query
+  let query = MedicalRecord.find({ patient: patient._id });
+
+  // Add filtering by record type if specified
+  if (req.query.recordType) {
+    query = query.where('recordType').equals(req.query.recordType);
+  }
+
+  // Add date range filtering
+  if (req.query.startDate || req.query.endDate) {
+    const dateFilter = {};
+    if (req.query.startDate) {
+      dateFilter.$gte = new Date(req.query.startDate);
+    }
+    if (req.query.endDate) {
+      dateFilter.$lte = new Date(req.query.endDate);
+    }
+    query = query.where('date').and([dateFilter]);
+  }
+
+  // Add pagination
+  const page = parseInt(req.query.page, 10) || 1;
+  const limit = parseInt(req.query.limit, 10) || 10;
+  const startIndex = (page - 1) * limit;
+  const endIndex = page * limit;
+  const total = await MedicalRecord.countDocuments(query.getQuery());
+
+  query = query.skip(startIndex).limit(limit);
+
+  // Sort by date (newest first)
+  query = query.sort('-date -createdAt');
+
+  // Execute query with populate
+  const records = await query
+    .populate({
+      path: 'doctor',
+      select: 'name role'
+    })
+    .populate({
+      path: 'patient',
+      select: 'user',
+      populate: {
+        path: 'user',
+        select: 'name email'
+      }
+    });
+
+  // Mark unviewed records as viewed
+  const unviewedRecords = records.filter(record => record.status === 'new');
+  if (unviewedRecords.length > 0) {
+    await MedicalRecord.updateMany(
+      { _id: { $in: unviewedRecords.map(record => record._id) } },
+      { status: 'viewed' }
+    );
+  }
+
+  // Pagination result
+  const pagination = {};
+  if (endIndex < total) {
+    pagination.next = {
+      page: page + 1,
+      limit
+    };
+  }
+  if (startIndex > 0) {
+    pagination.prev = {
+      page: page - 1,
+      limit
+    };
+  }
+
+  res.status(200).json({
+    success: true,
+    count: records.length,
+    total,
+    pagination,
+    data: records
+  });
+});
+
+// @desc    Update patient's own medical record
+// @route   PUT /api/v1/records/patient/:id
+// @access  Private (patients only)
+exports.updatePatientOwnRecord = asyncHandler(async (req, res, next) => {
+  // Ensure user is a patient
+  if (req.user.role !== 'patient') {
+    return next(new ErrorResponse('Only patients can update their own records', 401));
+  }
+
+  // Get patient profile
+  const patient = await Patient.findOne({ user: req.user.id });
+  if (!patient) {
+    return next(new ErrorResponse('Patient profile not found', 404));
+  }
+
+  let record = await MedicalRecord.findById(req.params.id);
+  if (!record) {
+    return next(new ErrorResponse(`No record found with id ${req.params.id}`, 404));
+  }
+
+  // Make sure the record belongs to this patient
+  if (record.patient.toString() !== patient._id.toString()) {
+    return next(new ErrorResponse('Not authorized to update this record', 401));
+  }
+
+  // Only allow updating certain fields for patient-uploaded records
+  const allowedUpdates = ['title', 'description', 'notes', 'recordType'];
+  const updates = {};
+  
+  allowedUpdates.forEach(field => {
+    if (req.body[field] !== undefined) {
+      updates[field] = req.body[field];
+    }
+  });
+
+  record = await MedicalRecord.findByIdAndUpdate(req.params.id, updates, {
+    new: true,
+    runValidators: true
+  }).populate({
+    path: 'patient',
+    select: 'user',
+    populate: {
+      path: 'user',
+      select: 'name email'
+    }
+  });
+
+  res.status(200).json({
+    success: true,
+    data: record
+  });
+});
+
+// @desc    Delete patient's own medical record
+// @route   DELETE /api/v1/records/patient/:id
+// @access  Private (patients only)
+exports.deletePatientOwnRecord = asyncHandler(async (req, res, next) => {
+  // Ensure user is a patient
+  if (req.user.role !== 'patient') {
+    return next(new ErrorResponse('Only patients can delete their own records', 401));
+  }
+
+  // Get patient profile
+  const patient = await Patient.findOne({ user: req.user.id });
+  if (!patient) {
+    return next(new ErrorResponse('Patient profile not found', 404));
+  }
+
+  const record = await MedicalRecord.findById(req.params.id);
+  if (!record) {
+    return next(new ErrorResponse(`No record found with id ${req.params.id}`, 404));
+  }
+
+  // Make sure the record belongs to this patient
+  if (record.patient.toString() !== patient._id.toString()) {
+    return next(new ErrorResponse('Not authorized to delete this record', 401));
+  }
+
+  // Delete associated files
+  if (record.fileUrl) {
+    const fs = require('fs');
+    const path = require('path');
+    
+    try {
+      // Handle both single file and multiple files
+      if (record.fileUrl.startsWith('[')) {
+        // Multiple files stored as JSON array
+        const fileUrls = JSON.parse(record.fileUrl);
+        fileUrls.forEach(url => {
+          const filePath = path.join(process.cwd(), 'uploads', 'medical-reports', path.basename(url));
+          if (fs.existsSync(filePath)) {
+            fs.unlinkSync(filePath);
+          }
+        });
+      } else {
+        // Single file
+        const filePath = path.join(process.cwd(), 'uploads', 'medical-reports', path.basename(record.fileUrl));
+        if (fs.existsSync(filePath)) {
+          fs.unlinkSync(filePath);
+        }
+      }
+    } catch (error) {
+      console.error('Error deleting associated files:', error);
+      // Continue with record deletion even if file deletion fails
+    }
+  }
+
+  await record.deleteOne();
+
+  res.status(200).json({
+    success: true,
+    data: {}
+  });
+});

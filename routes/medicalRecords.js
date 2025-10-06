@@ -6,12 +6,17 @@ const {
   updateMedicalRecord,
   deleteMedicalRecord,
   uploadMedicalRecordFile,
-  downloadMedicalRecord
+  downloadMedicalRecord,
+  patientUploadReport,
+  getPatientOwnRecords,
+  updatePatientOwnRecord,
+  deletePatientOwnRecord
 } = require('../controllers/medicalRecords');
 
 const router = express.Router({ mergeParams: true });
 
 const { protect, authorize } = require('../middleware/auth');
+const { uploadMultiple, handleUploadError } = require('../middleware/upload');
 
 // Protect all routes
 router.use(protect);
@@ -37,5 +42,16 @@ router.route('/:id/upload')
 
 router.route('/:id/download')
   .get(downloadMedicalRecord);
+
+// Patient-specific routes
+router.route('/patient/upload')
+  .post(authorize('patient'), uploadMultiple, handleUploadError, patientUploadReport);
+
+router.route('/patient/my-records')
+  .get(authorize('patient'), getPatientOwnRecords);
+
+router.route('/patient/:id')
+  .put(authorize('patient'), updatePatientOwnRecord)
+  .delete(authorize('patient'), deletePatientOwnRecord);
 
 module.exports = router;
