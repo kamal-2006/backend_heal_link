@@ -533,62 +533,133 @@ exports.updateNotificationPreferences = async (req, res, next) => {
 
 // ============== ADMIN-SPECIFIC METHODS (NO AUTH REQUIRED) ==============
 
-// @desc    Get all patients for admin (no auth)
+// @desc    Get all patients for admin (no auth) - Only patients with real data
 // @route   GET /api/v1/patients/admin/patients
 // @access  Public (Admin panel)
 exports.getAllPatientsForAdmin = async (req, res, next) => {
     try {
-        const patients = await Patient.find()
+        // Build query to find patients with meaningful data
+        const patients = await Patient.find({
+            $or: [
+                { dateOfBirth: { $exists: true, $ne: null } },
+                { gender: { $exists: true, $ne: null } },
+                { bloodType: { $exists: true, $ne: null } },
+                { allergies: { $exists: true, $ne: [] } },
+                { medicalConditions: { $exists: true, $ne: [] } },
+                { medications: { $exists: true, $ne: [] } },
+                { 'emergencyContact.name': { $exists: true, $ne: null, $ne: '' } },
+                { 'insuranceInfo.provider': { $exists: true, $ne: null, $ne: '' } },
+                { 'address.street': { $exists: true, $ne: null, $ne: '' } },
+                { 'height.value': { $exists: true, $ne: null } },
+                { 'weight.value': { $exists: true, $ne: null } }
+            ]
+        })
             .populate({
                 path: 'user',
                 select: 'firstName lastName email phone createdAt'
             })
             .populate({
                 path: 'appointments',
-                select: 'date time status',
+                select: 'date time status doctor reason',
+                populate: {
+                    path: 'doctor',
+                    populate: {
+                        path: 'user',
+                        select: 'firstName lastName'
+                    }
+                },
                 options: { sort: { date: -1 } }
             })
             .sort({ createdAt: -1 });
 
-        const patientsWithStats = patients.map(patient => {
-            const totalAppointments = patient.appointments ? patient.appointments.length : 0;
-            const upcomingAppointments = patient.appointments ? 
-                patient.appointments.filter(apt => new Date(apt.date) >= new Date()).length : 0;
-            
-            return {
-                _id: patient._id,
-                patientId: patient.patientId,
-                user: patient.user,
-                dateOfBirth: patient.dateOfBirth,
-                gender: patient.gender,
-                bloodType: patient.bloodType,
-                allergies: patient.allergies,
-                medicalConditions: patient.medicalConditions,
-                emergencyContact: patient.emergencyContact,
-                insuranceInfo: patient.insuranceInfo,
-                createdAt: patient.createdAt,
-                totalAppointments,
-                upcomingAppointments,
-                lastAppointment: patient.appointments && patient.appointments.length > 0 ? 
-                    patient.appointments[0].date : null
-            };
-        });
+        // Filter and format patients with meaningful information
+        const patientsWithStats = patients
+            .filter(patient => {
+                // Additional filtering: Only include patients with user data and at least one meaningful field
+                if (!patient.user) return false;
+                
+                const hasPersonalInfo = patient.dateOfBirth || patient.gender || patient.bloodType;
+                const hasMedicalInfo = (patient.allergies && patient.allergies.length > 0) || 
+                                     (patient.medicalConditions && patient.medicalConditions.length > 0) ||
+                                     (patient.medications && patient.medications.length > 0);
+                const hasContactInfo = patient.emergencyContact?.name || 
+                                     patient.address?.street ||
+                                     patient.insuranceInfo?.provider;
+                const hasPhysicalInfo = patient.height?.value || patient.weight?.value;
+                const hasAppointments = patient.appointments && patient.appointments.length > 0;
+                
+                return hasPersonalInfo || hasMedicalInfo || hasContactInfo || hasPhysicalInfo || hasAppointments;
+            })
+            .map(patient => {
+                const totalAppointments = patient.appointments ? patient.appointments.length : 0;
+                const upcomingAppointments = patient.appointments ? 
+                    patient.appointments.filter(apt => new Date(apt.date) >= new Date()).length : 0;
+                const completedAppointments = patient.appointments ? 
+                    patient.appointments.filter(apt => apt.status === 'completed').length : 0;
+                
+                // Calculate age if dateOfBirth exists
+                let age = null;
+                if (patient.dateOfBirth) {
+                    const today = new Date();
+                    const birthDate = new Date(patient.dateOfBirth);
+                    age = today.getFullYear() - birthDate.getFullYear();
+                    const monthDiff = today.getMonth() - birthDate.getMonth();
+                    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+                        age--;
+                    }
+                }
+                
+                return {
+                    _id: patient._id,
+                    patientId: patient.patientId,
+                    user: patient.user,
+                    age: age,
+                    dateOfBirth: patient.dateOfBirth,
+                    gender: patient.gender,
+                    bloodType: patient.bloodType,
+                    allergies: patient.allergies || [],
+                    medicalConditions: patient.medicalConditions || [],
+                    medications: patient.medications || [],
+                    emergencyContact: patient.emergencyContact,
+                    insuranceInfo: patient.insuranceInfo,
+                    address: patient.address,
+                    height: patient.height,
+                    weight: patient.weight,
+                    createdAt: patient.createdAt,
+                    stats: {
+                        totalAppointments,
+                        upcomingAppointments,
+                        completedAppointments
+                    },
+                    lastAppointment: patient.appointments && patient.appointments.length > 0 ? 
+                        patient.appointments[0].date : null,
+                    // Data completeness indicator
+                    profileCompleteness: {
+                        hasPersonalInfo: !!(patient.dateOfBirth || patient.gender || patient.bloodType),
+                        hasMedicalInfo: !!((patient.allergies && patient.allergies.length > 0) || 
+                                         (patient.medicalConditions && patient.medicalConditions.length > 0)),
+                        hasContactInfo: !!(patient.emergencyContact?.name || patient.address?.street),
+                        hasInsurance: !!(patient.insuranceInfo?.provider)
+                    }
+                };
+            });
 
         res.status(200).json({ 
             success: true, 
             count: patientsWithStats.length, 
-            data: patientsWithStats 
+            data: patientsWithStats,
+            message: `Found ${patientsWithStats.length} patients with meaningful data`
         });
     } catch (error) {
-        console.error('Error fetching patients for admin:', error);
+        console.error('Error fetching real patients for admin:', error);
         res.status(500).json({ 
             success: false, 
-            error: 'Failed to fetch patients' 
+            error: 'Failed to fetch patient data' 
         });
     }
 };
 
-// @desc    Get single patient details for admin (no auth)
+// @desc    Get single patient details for admin (no auth) - Only real patient data
 // @route   GET /api/v1/patients/admin/patients/:id
 // @access  Public (Admin panel)
 exports.getPatientDetailsForAdmin = async (req, res, next) => {
@@ -633,6 +704,28 @@ exports.getPatientDetailsForAdmin = async (req, res, next) => {
             });
         }
 
+        // Check if patient has meaningful data
+        const hasPersonalInfo = patient.dateOfBirth || patient.gender || patient.bloodType;
+        const hasMedicalInfo = (patient.allergies && patient.allergies.length > 0) || 
+                             (patient.medicalConditions && patient.medicalConditions.length > 0) ||
+                             (patient.medications && patient.medications.length > 0);
+        const hasContactInfo = patient.emergencyContact?.name || 
+                             patient.address?.street ||
+                             patient.insuranceInfo?.provider;
+        const hasPhysicalInfo = patient.height?.value || patient.weight?.value;
+        const hasAppointments = patient.appointments && patient.appointments.length > 0;
+        const hasMedicalRecords = patient.medicalRecords && patient.medicalRecords.length > 0;
+        const hasPrescriptions = patient.prescriptions && patient.prescriptions.length > 0;
+
+        // If patient has no meaningful data, return appropriate message
+        if (!hasPersonalInfo && !hasMedicalInfo && !hasContactInfo && !hasPhysicalInfo && 
+            !hasAppointments && !hasMedicalRecords && !hasPrescriptions) {
+            return res.status(404).json({
+                success: false,
+                error: 'Patient record exists but contains no meaningful data'
+            });
+        }
+
         // Calculate stats
         const totalAppointments = patient.appointments ? patient.appointments.length : 0;
         const upcomingAppointments = patient.appointments ? 
@@ -661,6 +754,21 @@ exports.getPatientDetailsForAdmin = async (req, res, next) => {
                 completedAppointments,
                 totalMedicalRecords: patient.medicalRecords ? patient.medicalRecords.length : 0,
                 totalPrescriptions: patient.prescriptions ? patient.prescriptions.length : 0
+            },
+            // Data completeness indicators
+            profileCompleteness: {
+                hasPersonalInfo,
+                hasMedicalInfo,
+                hasContactInfo,
+                hasPhysicalInfo,
+                hasAppointments,
+                hasMedicalRecords,
+                hasPrescriptions,
+                completenessPercentage: Math.round(
+                    ([hasPersonalInfo, hasMedicalInfo, hasContactInfo, hasPhysicalInfo, 
+                      hasAppointments, hasMedicalRecords, hasPrescriptions]
+                        .filter(Boolean).length / 7) * 100
+                )
             }
         };
 
