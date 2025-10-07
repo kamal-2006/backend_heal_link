@@ -112,6 +112,9 @@ const UserSchema = new mongoose.Schema({
     type: Date,
     default: Date.now,
   },
+}, {
+  toJSON: { virtuals: true },
+  toObject: { virtuals: true }
 });
 
 // Encrypt password using bcrypt
@@ -135,5 +138,13 @@ UserSchema.methods.getSignedJwtToken = function () {
 UserSchema.methods.matchPassword = async function (enteredPassword) {
   return await bcrypt.compare(enteredPassword, this.password);
 };
+
+// Virtual populate for patient
+UserSchema.virtual('patientInfo', {
+  ref: 'Patient',
+  localField: '_id',
+  foreignField: 'user',
+  justOne: true
+});
 
 module.exports = mongoose.model('User', UserSchema);

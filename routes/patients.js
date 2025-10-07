@@ -54,7 +54,7 @@ router
 // General routes (admin/doctor access)
 router
   .route('/')
-  .get(protect, getPatients)
+  .get(protect, authorize('doctor', 'admin'), getPatients)
   .post(protect, createPatient);
 
 router

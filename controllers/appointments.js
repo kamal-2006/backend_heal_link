@@ -178,12 +178,31 @@ exports.getAppointment = async (req, res, next) => {
 // @access  Private
 exports.bookAppointment = async (req, res, next) => {
     try {
-        // Get patient record for current user
-        const patient = await Patient.findOne({ user: req.user.id });
-        if (!patient) {
-            return res.status(404).json({
+        let patientId;
+
+        if (req.user.role === 'patient') {
+            // If the user is a patient, they are booking for themselves
+            const patient = await Patient.findOne({ user: req.user.id });
+            if (!patient) {
+                return res.status(404).json({
+                    success: false,
+                    error: 'Patient profile not found'
+                });
+            }
+            patientId = req.user.id;
+        } else if (req.user.role === 'doctor' || req.user.role === 'admin') {
+            // If the user is a doctor or admin, they are booking for a patient
+            if (!req.body.patient) {
+                return res.status(400).json({
+                    success: false,
+                    error: 'Patient ID is required'
+                });
+            }
+            patientId = req.body.patient;
+        } else {
+            return res.status(401).json({
                 success: false,
-                error: 'Patient profile not found'
+                error: 'Not authorized to book appointments'
             });
         }
 
@@ -231,7 +250,7 @@ exports.bookAppointment = async (req, res, next) => {
         // Create appointment with proper references
         const appointment = await Appointment.create({
             doctor: doctor.user._id, // Use the user ID from doctor
-            patient: req.user.id, // Current user is the patient
+            patient: patientId, // Use the resolved patient ID
             date: appointmentDate,
             reason: req.body.reason,
             notes: req.body.notes || ''
