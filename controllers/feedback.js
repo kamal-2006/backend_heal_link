@@ -41,7 +41,7 @@ exports.getFeedbacks = async (req, res, next) => {
             })
             .populate({
                 path: 'patient',
-                select: 'firstName lastName'
+                select: 'firstName lastName profilePicture'
             });
         
         // Select Fields
@@ -110,7 +110,7 @@ exports.getFeedback = async (req, res, next) => {
             })
             .populate({
                 path: 'patient',
-                select: 'firstName lastName'
+                select: 'firstName lastName profilePicture'
             });
 
         if (!feedback) {
@@ -205,4 +205,34 @@ exports.updateFeedback = async (req, res, next) => {
 // @access  Private
 exports.deleteFeedback = async (req, res, next) => {
     res.status(200).json({ success: true, msg: `Delete feedback ${req.params.id}` });
+};
+
+// @desc    Get feedback stats for admin (no auth)
+// @route   GET /api/v1/feedback/stats
+// @access  Public (Admin dashboard)
+exports.getFeedbackStats = async (req, res, next) => {
+    try {
+        const feedbacks = await Feedback.find()
+            .populate({
+                path: 'doctor',
+                select: 'firstName lastName email'
+            })
+            .populate({
+                path: 'patient',
+                select: 'firstName lastName email profilePicture'
+            })
+            .sort('-createdAt');
+
+        res.status(200).json({
+            success: true,
+            count: feedbacks.length,
+            data: feedbacks
+        });
+    } catch (error) {
+        console.error('Error fetching feedback stats:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to fetch feedback stats'
+        });
+    }
 };
