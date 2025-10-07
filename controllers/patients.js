@@ -9,7 +9,7 @@ exports.getPatients = async (req, res, next) => {
     try {
         const patients = await Patient.find().populate({
             path: 'user',
-            select: 'firstName lastName email phone'
+            select: 'firstName lastName email phone profilePicture'
         });
         res.status(200).json({ success: true, count: patients.length, data: patients });
     } catch (error) {
@@ -90,7 +90,7 @@ exports.getPatient = async (req, res, next) => {
     try {
         const patient = await Patient.findById(req.params.id).populate({
             path: 'user',
-            select: 'firstName lastName email phone'
+            select: 'firstName lastName email phone profilePicture'
         });
 
         if (!patient) {
@@ -825,7 +825,7 @@ exports.getPatientDetailsForAdmin = async (req, res, next) => {
 // @access  Public (Admin panel)
 exports.updatePatientForAdmin = async (req, res, next) => {
     try {
-        let patient = await Patient.findById(req.params.id);
+        let patient = await Patient.findById(req.params.id).populate('user');
 
         if (!patient) {
             return res.status(404).json({
@@ -834,22 +834,46 @@ exports.updatePatientForAdmin = async (req, res, next) => {
             });
         }
 
-        // Update patient information
-        patient = await Patient.findByIdAndUpdate(
+        const { firstName, lastName, email, phone, profilePicture, ...patientData } = req.body;
+
+        // Update user information if provided
+        if (firstName || lastName || email || phone || profilePicture !== undefined) {
+            const userUpdateData = {};
+            if (firstName) userUpdateData.firstName = firstName;
+            if (lastName) userUpdateData.lastName = lastName;
+            if (email) userUpdateData.email = email;
+            if (phone) userUpdateData.phone = phone;
+            if (profilePicture !== undefined) userUpdateData.profilePicture = profilePicture;
+
+            await User.findByIdAndUpdate(
+                patient.user._id,
+                userUpdateData,
+                { 
+                    new: true, 
+                    runValidators: true 
+                }
+            );
+        }
+
+        // Update patient-specific information
+        await Patient.findByIdAndUpdate(
             req.params.id, 
-            req.body, 
+            patientData, 
             {
                 new: true,
                 runValidators: true
             }
-        ).populate({
+        );
+
+        // Fetch the updated patient with fresh user data
+        const updatedPatient = await Patient.findById(req.params.id).populate({
             path: 'user',
-            select: 'firstName lastName email phone'
+            select: 'firstName lastName email phone profilePicture'
         });
 
         res.status(200).json({ 
             success: true, 
-            data: patient 
+            data: updatedPatient 
         });
     } catch (error) {
         console.error('Error updating patient for admin:', error);

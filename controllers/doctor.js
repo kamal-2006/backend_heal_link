@@ -1,5 +1,6 @@
 const Doctor = require('../models/Doctor');
 const User = require('../models/User');
+const Appointment = require('../models/Appointment');
 const asyncHandler = require('../middleware/async');
 const ErrorResponse = require('../utils/errorResponse');
 
@@ -117,5 +118,30 @@ exports.getDoctor = asyncHandler(async (req, res, next) => {
   res.status(200).json({
     success: true,
     data: doctor
+  });
+});
+
+// @desc    Get all appointments for the logged-in doctor
+// @route   GET /api/v1/doctor/appointments
+// @access  Private (Doctors only)
+exports.getDoctorAppointments = asyncHandler(async (req, res, next) => {
+  const appointments = await Appointment.find({ doctor: req.user.id })
+    .populate({
+      path: 'patient',
+      select: 'firstName lastName email phone',
+      populate: {
+        path: 'patientInfo',
+        select: 'patientId'
+      }
+    })
+    .populate({
+      path: 'doctor',
+      select: 'firstName lastName email',
+    });
+
+  res.status(200).json({
+    success: true,
+    count: appointments.length,
+    data: appointments,
   });
 });

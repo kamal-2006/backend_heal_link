@@ -1,4 +1,6 @@
 const User = require('../models/User');
+const Doctor = require('../models/Doctor');
+const Patient = require('../models/Patient');
 const { OAuth2Client } = require('google-auth-library');
 const speakeasy = require('speakeasy');
 const QRCode = require('qrcode');
@@ -26,6 +28,17 @@ exports.register = async (req, res, next) => {
       role,
       password,
     });
+
+    // Create a doctor or patient profile
+    if (user.role === 'doctor') {
+      await Doctor.create({ 
+        user: user._id,
+        specialization: 'General Medicine',
+        experience: 0
+      });
+    } else if (user.role === 'patient') {
+      await Patient.create({ user: user._id });
+    }
 
     sendTokenResponse(user, 201, res);
   } catch (error) {

@@ -1,20 +1,31 @@
-const express = require('express');
+const express = require("express");
 const {
   getDoctorProfile,
   updateDoctorProfile,
   getDoctors,
-  getDoctor
-} = require('../controllers/doctor');
+  getDoctor,
+  getDoctorAppointments,
+} = require("../controllers/doctor");
+const { protect, authorize } = require("../middleware/auth");
 
 const router = express.Router();
 
-const { protect, authorize } = require('../middleware/auth');
+// Doctor profile routes
+router
+  .route("/me")
+  .get(protect, authorize("doctor"), getDoctorProfile)
+  .put(protect, authorize("doctor"), updateDoctorProfile);
 
-router.get('/me', protect, authorize('doctor'), getDoctorProfile);
-router.put('/me', protect, authorize('doctor'), updateDoctorProfile);
+// Doctor appointments route
+router.get(
+  "/appointments",
+  protect,
+  authorize("doctor"),
+  getDoctorAppointments
+);
 
-// Public routes (require authentication but not doctor role)
-router.get('/', protect, getDoctors);
-router.get('/:id', protect, getDoctor);
+// Public doctor routes
+router.get("/", getDoctors);
+router.get("/:id", getDoctor);
 
 module.exports = router;
