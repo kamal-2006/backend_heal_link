@@ -1,44 +1,36 @@
-const express = require('express');
+const express = require("express");
 const {
   getAppointments,
   getAppointment,
   bookAppointment,
   updateAppointment,
-  deleteAppointment,
-  getPatientAppointments,
   cancelAppointment,
-  getDoctorAvailability
-} = require('../controllers/appointments');
+  deleteAppointment,
+  getDoctorAvailability,
+  getPatientAppointments,
+} = require("../controllers/appointments");
+
+const { protect, authorize } = require("../middleware/auth");
 
 const router = express.Router();
 
-const { protect, authorize } = require('../middleware/auth');
+// Public routes (with authentication)
+router.route("/").get(protect, getAppointments);
+
+router.route("/book").post(protect, bookAppointment);
 
 router
-  .route('/')
-  .get(getAppointments);
+  .route("/:id")
+  .get(protect, getAppointment)
+  .put(protect, updateAppointment)
+  .delete(protect, authorize("admin"), deleteAppointment);
 
-router
-  .route('/book')
-  .post(protect, authorize('patient', 'doctor', 'admin'), bookAppointment);
+router.route("/:id/cancel").put(protect, cancelAppointment);
 
-router
-  .route('/patient/:id')
-  .get(protect, authorize('patient', 'doctor', 'admin'), getPatientAppointments);
+// Patient appointments
+router.get("/patient/:id", protect, getPatientAppointments);
 
-router
-  .route('/:id')
-  .get(getAppointment)
-  .put(updateAppointment)
-  .delete(deleteAppointment);
-
-router
-  .route('/:id/cancel')
-  .put(protect, authorize('patient', 'doctor', 'admin'), cancelAppointment);
-
-// This route is placed in appointments.js but conceptually relates to doctors
-router
-  .route('/doctors/:id/availability')
-  .get(protect, getDoctorAvailability);
+// Doctor availability
+router.get("/doctors/:id/availability", protect, getDoctorAvailability);
 
 module.exports = router;
