@@ -525,3 +525,147 @@ exports.addMedicationNote = asyncHandler(async (req, res, next) => {
     data: medication
   });
 });
+
+// @desc    Create medication by patient
+// @route   POST /api/v1/medications/my
+// @access  Private (Patient only)
+exports.createMyMedication = asyncHandler(async (req, res, next) => {
+  // Find patient by user ID
+  const patient = await Patient.findOne({ user: req.user.id });
+  
+  if (!patient) {
+    return next(new ErrorResponse('Patient profile not found', 404));
+  }
+
+  // Add patient to req.body
+  req.body.patient = patient._id;
+  
+  // Patients don't need a doctor field for self-managed medications
+  // Set as self-managed or use a default doctor if required
+  if (!req.body.doctor) {
+    req.body.doctor = req.user.id; // Self-managed medication
+  }
+
+  const medication = await Medication.create(req.body);
+
+  // Populate the medication with patient and doctor details
+  const populatedMedication = await Medication.findById(medication._id)
+    .populate({
+      path: 'patient',
+      select: 'firstName lastName email'
+    })
+    .populate({
+      path: 'doctor',
+      select: 'firstName lastName email'
+    });
+
+  res.status(201).json({
+    success: true,
+    data: populatedMedication
+  });
+});
+
+// @desc    Update my medication
+// @route   PUT /api/v1/medications/my/:id
+// @access  Private (Patient only)
+exports.updateMyMedication = asyncHandler(async (req, res, next) => {
+  // Find patient by user ID
+  const patient = await Patient.findOne({ user: req.user.id });
+  
+  if (!patient) {
+    return next(new ErrorResponse('Patient profile not found', 404));
+  }
+
+  let medication = await Medication.findById(req.params.id);
+
+  if (!medication) {
+    return next(new ErrorResponse(`Medication not found with id of ${req.params.id}`, 404));
+  }
+
+  // Make sure medication belongs to the patient
+  if (medication.patient.toString() !== patient._id.toString()) {
+    return next(new ErrorResponse(`Patient ${req.user.id} is not authorized to update this medication`, 401));
+  }
+
+  medication = await Medication.findByIdAndUpdate(req.params.id, req.body, {
+    new: true,
+    runValidators: true
+  }).populate({
+    path: 'patient',
+    select: 'firstName lastName email'
+  }).populate({
+    path: 'doctor',
+    select: 'firstName lastName email'
+  });
+
+  res.status(200).json({
+    success: true,
+    data: medication
+  });
+});
+
+// @desc    Delete my medication
+// @route   DELETE /api/v1/medications/my/:id
+// @access  Private (Patient only)
+exports.deleteMyMedication = asyncHandler(async (req, res, next) => {
+  // Find patient by user ID
+  const patient = await Patient.findOne({ user: req.user.id });
+  
+  if (!patient) {
+    return next(new ErrorResponse('Patient profile not found', 404));
+  }
+
+  const medication = await Medication.findById(req.params.id);
+
+  if (!medication) {
+    return next(new ErrorResponse(`Medication not found with id of ${req.params.id}`, 404));
+  }
+
+  // Make sure medication belongs to the patient
+  if (medication.patient.toString() !== patient._id.toString()) {
+    return next(new ErrorResponse(`Patient ${req.user.id} is not authorized to delete this medication`, 401));
+  }
+
+  await medication.deleteOne();
+
+  res.status(200).json({
+    success: true,
+    data: {}
+  });
+});
+
+// @desc    Get single medication for patient
+// @route   GET /api/v1/medications/my/:id
+// @access  Private (Patient only)
+exports.getMyMedication = asyncHandler(async (req, res, next) => {
+  // Find patient by user ID
+  const patient = await Patient.findOne({ user: req.user.id });
+  
+  if (!patient) {
+    return next(new ErrorResponse('Patient profile not found', 404));
+  }
+
+  const medication = await Medication.findById(req.params.id)
+    .populate({
+      path: 'patient',
+      select: 'firstName lastName email'
+    })
+    .populate({
+      path: 'doctor',
+      select: 'firstName lastName email'
+    });
+
+  if (!medication) {
+    return next(new ErrorResponse(`Medication not found with id of ${req.params.id}`, 404));
+  }
+
+  // Make sure medication belongs to the patient
+  if (medication.patient._id.toString() !== patient._id.toString()) {
+    return next(new ErrorResponse(`Patient ${req.user.id} is not authorized to access this medication`, 401));
+  }
+
+  res.status(200).json({
+    success: true,
+    data: medication
+  });
+});

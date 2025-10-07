@@ -5,6 +5,8 @@ const {
   createFeedback,
   updateFeedback,
   deleteFeedback,
+  getPatientFeedbackHistory,
+  getAppointmentsForFeedback,
 } = require('../controllers/feedback');
 
 const router = express.Router();
@@ -15,6 +17,14 @@ router
   .route('/')
   .get(protect, getFeedbacks)
   .post(protect, createFeedback);
+
+router
+  .route('/patient/history')
+  .get(protect, getPatientFeedbackHistory);
+
+router
+  .route('/patient/appointments')
+  .get(protect, getAppointmentsForFeedback);
 
 router
   .route('/:id')

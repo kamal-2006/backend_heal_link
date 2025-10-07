@@ -7,7 +7,9 @@ const {
   deleteAppointment,
   getPatientAppointments,
   cancelAppointment,
-  getDoctorAvailability
+  getDoctorAvailability,
+  updateExpiredAppointments,
+  confirmAppointment
 } = require('../controllers/appointments');
 
 const router = express.Router();
@@ -35,6 +37,14 @@ router
 router
   .route('/:id/cancel')
   .put(protect, authorize('patient', 'doctor', 'admin'), cancelAppointment);
+
+router
+  .route('/:id/confirm')
+  .put(protect, authorize('doctor', 'admin'), confirmAppointment);
+
+router
+  .route('/update-status')
+  .put(protect, authorize('admin'), updateExpiredAppointments);
 
 // This route is placed in appointments.js but conceptually relates to doctors
 router

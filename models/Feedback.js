@@ -11,6 +11,21 @@ const FeedbackSchema = new mongoose.Schema({
     ref: 'User',
     required: true,
   },
+  appointment: {
+    type: mongoose.Schema.ObjectId,
+    ref: 'Appointment',
+    required: true,
+  },
+  appointmentType: {
+    type: String,
+    enum: ['consultation', 'follow-up', 'emergency', 'check-up'],
+    default: 'consultation',
+  },
+  feedbackType: {
+    type: String,
+    enum: ['compliment', 'complaint', 'suggestion'],
+    default: 'compliment',
+  },
   rating: {
     type: Number,
     required: true,
@@ -19,6 +34,11 @@ const FeedbackSchema = new mongoose.Schema({
   },
   comment: {
     type: String,
+  },
+  status: {
+    type: String,
+    enum: ['completed', 'pending'],
+    default: 'completed',
   },
   createdAt: {
     type: Date,

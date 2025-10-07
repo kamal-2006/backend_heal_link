@@ -1,5 +1,6 @@
 const Feedback = require('../models/Feedback');
 const User = require('../models/User');
+const Appointment = require('../models/Appointment');
 
 // @desc    Get all feedback
 // @route   GET /api/v1/feedback
@@ -37,11 +38,15 @@ exports.getFeedbacks = async (req, res, next) => {
         query = Feedback.find(JSON.parse(queryStr))
             .populate({
                 path: 'doctor',
-                select: 'firstName lastName'
+                select: 'firstName lastName specialty'
             })
             .populate({
                 path: 'patient',
                 select: 'firstName lastName'
+            })
+            .populate({
+                path: 'appointment',
+                select: 'date reason status'
             });
         
         // Select Fields
@@ -106,11 +111,15 @@ exports.getFeedback = async (req, res, next) => {
         const feedback = await Feedback.findById(req.params.id)
             .populate({
                 path: 'doctor',
-                select: 'firstName lastName'
+                select: 'firstName lastName specialty'
             })
             .populate({
                 path: 'patient',
                 select: 'firstName lastName'
+            })
+            .populate({
+                path: 'appointment',
+                select: 'date reason status'
             });
 
         if (!feedback) {
@@ -157,33 +166,53 @@ exports.createFeedback = async (req, res, next) => {
             });
         }
 
-        // Check if doctor exists
-        const doctor = await User.findById(req.body.doctor);
-        if (!doctor || doctor.role !== 'doctor') {
+        // Check if appointment exists and belongs to the patient
+        const appointment = await Appointment.findById(req.body.appointment);
+        if (!appointment) {
             return res.status(404).json({
                 success: false,
-                error: 'Doctor not found'
+                error: 'Appointment not found'
             });
         }
 
-        // Check if patient has already submitted feedback for this doctor
+        if (appointment.patient.toString() !== req.user.id) {
+            return res.status(401).json({
+                success: false,
+                error: 'Not authorized to give feedback for this appointment'
+            });
+        }
+
+        // Set doctor from appointment
+        req.body.doctor = appointment.doctor;
+
+        // Check if feedback already exists for this appointment
         const existingFeedback = await Feedback.findOne({
-            doctor: req.body.doctor,
-            patient: req.user.id
+            appointment: req.body.appointment
         });
 
         if (existingFeedback) {
             return res.status(400).json({
                 success: false,
-                error: 'You have already submitted feedback for this doctor'
+                error: 'Feedback already submitted for this appointment'
             });
         }
 
         const feedback = await Feedback.create(req.body);
 
+        // Populate the created feedback
+        const populatedFeedback = await Feedback.findById(feedback._id)
+            .populate({
+                path: 'doctor',
+                select: 'firstName lastName specialty'
+            })
+            .populate({
+                path: 'appointment',
+                select: 'date reason status'
+            });
+
         res.status(201).json({
             success: true,
-            data: feedback
+            data: populatedFeedback
         });
     } catch (error) {
         res.status(400).json({
@@ -197,12 +226,193 @@ exports.createFeedback = async (req, res, next) => {
 // @route   PUT /api/v1/feedback/:id
 // @access  Private
 exports.updateFeedback = async (req, res, next) => {
-    res.status(200).json({ success: true, msg: `Update feedback ${req.params.id}` });
+    try {
+        let feedback = await Feedback.findById(req.params.id);
+
+        if (!feedback) {
+            return res.status(404).json({
+                success: false,
+                error: 'Feedback not found'
+            });
+        }
+
+        // Make sure patient owns the feedback
+        if (feedback.patient.toString() !== req.user.id && req.user.role !== 'admin') {
+            return res.status(401).json({
+                success: false,
+                error: 'Not authorized to update this feedback'
+            });
+        }
+
+        // Update only allowed fields
+        const allowedFields = ['rating', 'comment', 'appointmentType'];
+        const updateData = {};
+        
+        allowedFields.forEach(field => {
+            if (req.body[field] !== undefined) {
+                updateData[field] = req.body[field];
+            }
+        });
+
+        feedback = await Feedback.findByIdAndUpdate(
+            req.params.id,
+            updateData,
+            {
+                new: true,
+                runValidators: true
+            }
+        ).populate({
+            path: 'doctor',
+            select: 'firstName lastName specialty'
+        }).populate({
+            path: 'appointment',
+            select: 'date reason status'
+        });
+
+        res.status(200).json({
+            success: true,
+            data: feedback
+        });
+    } catch (error) {
+        res.status(400).json({
+            success: false,
+            error: error.message
+        });
+    }
 };
 
 // @desc    Delete feedback
 // @route   DELETE /api/v1/feedback/:id
 // @access  Private
 exports.deleteFeedback = async (req, res, next) => {
-    res.status(200).json({ success: true, msg: `Delete feedback ${req.params.id}` });
+    try {
+        const feedback = await Feedback.findById(req.params.id);
+
+        if (!feedback) {
+            return res.status(404).json({
+                success: false,
+                error: 'Feedback not found'
+            });
+        }
+
+        // Make sure patient owns the feedback
+        if (feedback.patient.toString() !== req.user.id && req.user.role !== 'admin') {
+            return res.status(401).json({
+                success: false,
+                error: 'Not authorized to delete this feedback'
+            });
+        }
+
+        await Feedback.findByIdAndDelete(req.params.id);
+
+        res.status(200).json({
+            success: true,
+            data: {}
+        });
+    } catch (error) {
+        res.status(400).json({
+            success: false,
+            error: error.message
+        });
+    }
+};
+
+// @desc    Get patient feedback history with stats
+// @route   GET /api/v1/feedback/patient/history
+// @access  Private
+exports.getPatientFeedbackHistory = async (req, res, next) => {
+    try {
+        if (req.user.role !== 'patient') {
+            return res.status(401).json({
+                success: false,
+                error: 'Only patients can access feedback history'
+            });
+        }
+
+        const feedbacks = await Feedback.find({ patient: req.user.id })
+            .populate({
+                path: 'doctor',
+                select: 'firstName lastName specialty'
+            })
+            .populate({
+                path: 'appointment',
+                select: 'date reason status'
+            })
+            .sort('-createdAt');
+
+        // Calculate statistics
+        const stats = {
+            totalFeedbacks: feedbacks.length,
+            averageRating: feedbacks.length > 0 ? 
+                (feedbacks.reduce((sum, f) => sum + f.rating, 0) / feedbacks.length).toFixed(1) : 0,
+            ratingDistribution: {
+                1: feedbacks.filter(f => f.rating === 1).length,
+                2: feedbacks.filter(f => f.rating === 2).length,
+                3: feedbacks.filter(f => f.rating === 3).length,
+                4: feedbacks.filter(f => f.rating === 4).length,
+                5: feedbacks.filter(f => f.rating === 5).length
+            },
+            appointmentTypes: {
+                consultation: feedbacks.filter(f => f.appointmentType === 'consultation').length,
+                'follow-up': feedbacks.filter(f => f.appointmentType === 'follow-up').length,
+                emergency: feedbacks.filter(f => f.appointmentType === 'emergency').length,
+                'check-up': feedbacks.filter(f => f.appointmentType === 'check-up').length
+            }
+        };
+
+        res.status(200).json({
+            success: true,
+            count: feedbacks.length,
+            data: feedbacks,
+            stats
+        });
+    } catch (error) {
+        res.status(400).json({
+            success: false,
+            error: error.message
+        });
+    }
+};
+
+// @desc    Get completed appointments available for feedback
+// @route   GET /api/v1/feedback/patient/appointments
+// @access  Private
+exports.getAppointmentsForFeedback = async (req, res, next) => {
+    try {
+        if (req.user.role !== 'patient') {
+            return res.status(401).json({
+                success: false,
+                error: 'Only patients can access this endpoint'
+            });
+        }
+
+        // Get completed appointments that don't have feedback yet
+        const appointments = await Appointment.find({
+            patient: req.user.id,
+            status: 'completed'
+        }).populate({
+            path: 'doctor',
+            select: 'firstName lastName specialty'
+        }).sort('-date');
+
+        // Filter out appointments that already have feedback
+        const appointmentsWithoutFeedback = [];
+        for (const appointment of appointments) {
+            const existingFeedback = await Feedback.findOne({ appointment: appointment._id });
+            if (!existingFeedback) {
+                appointmentsWithoutFeedback.push(appointment);
+            }
+        }
+
+        res.status(200).json({
+            success: true,
+            count: appointmentsWithoutFeedback.length,
+            data: appointmentsWithoutFeedback
+        });
+    } catch (error) {
+        res.status(400).json({
+            success: false,
+            error: error.message
+        });
+    }
 };

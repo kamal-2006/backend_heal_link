@@ -311,6 +311,8 @@ exports.getMyProfile = async (req, res, next) => {
 // @access  Private (Patient only)
 exports.updateMyProfile = async (req, res, next) => {
     try {
+        console.log('Received update request body:', JSON.stringify(req.body, null, 2));
+
         const { 
             firstName,
             lastName,
@@ -343,6 +345,7 @@ exports.updateMyProfile = async (req, res, next) => {
             if (lastName !== undefined) userUpdateData.lastName = lastName;
             if (phone !== undefined) userUpdateData.phone = phone;
 
+            console.log('Updating user data:', userUpdateData);
             await User.findByIdAndUpdate(
                 req.user.id,
                 userUpdateData,
@@ -366,41 +369,72 @@ exports.updateMyProfile = async (req, res, next) => {
         const validAlcoholUses = ['Never', 'Occasionally', 'Regularly', 'Unknown'];
         const validBloodTypes = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
 
-        // Update Patient model fields
-        const updateData = {
-            dateOfBirth,
-            gender: sanitizeEnumField(gender, validGenders),
-            bloodType: sanitizeEnumField(bloodType, validBloodTypes),
-            height,
-            weight,
-            address,
-            allergies,
-            medicalConditions,
-            medications,
-            emergencyContact,
-            insuranceInfo,
-            preferredLanguage,
-            maritalStatus: sanitizeEnumField(maritalStatus, validMaritalStatuses),
-            occupation,
-            smokingStatus: sanitizeEnumField(smokingStatus, validSmokingStatuses),
-            alcoholUse: sanitizeEnumField(alcoholUse, validAlcoholUses)
-        };
+        // Build the update data object
+        const updateData = {};
 
-        // Remove undefined values
-        Object.keys(updateData).forEach(key => {
-            if (updateData[key] === undefined) {
-                delete updateData[key];
-            }
-        });
+        // Handle simple fields
+        if (dateOfBirth !== undefined) updateData.dateOfBirth = dateOfBirth;
+        if (gender !== undefined) updateData.gender = sanitizeEnumField(gender, validGenders);
+        if (bloodType !== undefined) updateData.bloodType = sanitizeEnumField(bloodType, validBloodTypes);
+        if (preferredLanguage !== undefined) updateData.preferredLanguage = preferredLanguage;
+        if (maritalStatus !== undefined) updateData.maritalStatus = sanitizeEnumField(maritalStatus, validMaritalStatuses);
+        if (occupation !== undefined) updateData.occupation = occupation;
+        if (smokingStatus !== undefined) updateData.smokingStatus = sanitizeEnumField(smokingStatus, validSmokingStatuses);
+        if (alcoholUse !== undefined) updateData.alcoholUse = sanitizeEnumField(alcoholUse, validAlcoholUses);
+
+        // Handle array fields
+        if (allergies !== undefined) updateData.allergies = Array.isArray(allergies) ? allergies : [];
+        if (medicalConditions !== undefined) updateData.medicalConditions = Array.isArray(medicalConditions) ? medicalConditions : [];
+        if (medications !== undefined) updateData.medications = Array.isArray(medications) ? medications : [];
+
+        // Handle nested object fields - only update if they contain data
+        if (height && (height.value !== undefined || height.unit !== undefined)) {
+            updateData.height = {};
+            if (height.value !== undefined) updateData.height.value = height.value;
+            if (height.unit !== undefined) updateData.height.unit = height.unit;
+        }
+
+        if (weight && (weight.value !== undefined || weight.unit !== undefined)) {
+            updateData.weight = {};
+            if (weight.value !== undefined) updateData.weight.value = weight.value;
+            if (weight.unit !== undefined) updateData.weight.unit = weight.unit;
+        }
+
+        if (address && (address.street || address.city || address.state || address.zipCode)) {
+            updateData.address = {};
+            if (address.street !== undefined) updateData.address.street = address.street;
+            if (address.city !== undefined) updateData.address.city = address.city;
+            if (address.state !== undefined) updateData.address.state = address.state;
+            if (address.zipCode !== undefined) updateData.address.zipCode = address.zipCode;
+        }
+
+        if (emergencyContact && (emergencyContact.name || emergencyContact.phone || emergencyContact.relationship || emergencyContact.email)) {
+            updateData.emergencyContact = {};
+            if (emergencyContact.name !== undefined) updateData.emergencyContact.name = emergencyContact.name;
+            if (emergencyContact.phone !== undefined) updateData.emergencyContact.phone = emergencyContact.phone;
+            if (emergencyContact.relationship !== undefined) updateData.emergencyContact.relationship = emergencyContact.relationship;
+            if (emergencyContact.email !== undefined) updateData.emergencyContact.email = emergencyContact.email;
+        }
+
+        if (insuranceInfo && (insuranceInfo.provider || insuranceInfo.policyNumber || insuranceInfo.groupNumber)) {
+            updateData.insuranceInfo = {};
+            if (insuranceInfo.provider !== undefined) updateData.insuranceInfo.provider = insuranceInfo.provider;
+            if (insuranceInfo.policyNumber !== undefined) updateData.insuranceInfo.policyNumber = insuranceInfo.policyNumber;
+            if (insuranceInfo.groupNumber !== undefined) updateData.insuranceInfo.groupNumber = insuranceInfo.groupNumber;
+        }
+
+        console.log('Final update data for patient:', JSON.stringify(updateData, null, 2));
 
         if (!patient) {
             // If patient profile doesn't exist, create one
+            console.log('Creating new patient profile');
             patient = await Patient.create({
                 user: req.user.id,
                 ...updateData
             });
         } else {
             // Update existing patient profile
+            console.log('Updating existing patient profile');
             patient = await Patient.findOneAndUpdate(
                 { user: req.user.id },
                 updateData,
@@ -414,6 +448,7 @@ exports.updateMyProfile = async (req, res, next) => {
             select: 'firstName lastName email phone role'
         });
 
+        console.log('Updated patient profile:', patient._id);
         res.status(200).json({
             success: true,
             data: patient
