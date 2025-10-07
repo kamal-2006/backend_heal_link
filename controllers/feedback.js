@@ -4,10 +4,20 @@ const Appointment = require('../models/Appointment');
 
 // @desc    Get all feedback
 // @route   GET /api/v1/feedback
-// @access  Private
+// @access  Private (Admin and doctors can see all, patients see their own)
 exports.getFeedbacks = async (req, res, next) => {
     try {
-        let query = Feedback.find(req.query)
+        // Build query based on user role
+        let filterQuery = {};
+        
+        // If user is a patient, only show their feedback
+        if (req.user.role === 'patient') {
+            filterQuery.patient = req.user.id;
+        }
+        // Admin and doctors can see all feedback
+        // No additional filtering needed for admin/doctor roles
+        
+        let query = Feedback.find(filterQuery)
             .populate({
                 path: 'doctor',
                 select: 'firstName lastName specialty'
@@ -37,7 +47,7 @@ exports.getFeedbacks = async (req, res, next) => {
         const limit = parseInt(req.query.limit, 10) || 25;
         const startIndex = (page - 1) * limit;
         const endIndex = page * limit;
-        const total = await Feedback.countDocuments();
+        const total = await Feedback.countDocuments(filterQuery);
 
         query = query.skip(startIndex).limit(limit);
         const feedback = await query;
@@ -57,6 +67,7 @@ exports.getFeedbacks = async (req, res, next) => {
             data: feedback
         });
     } catch (error) {
+        console.error('Get feedbacks error:', error);
         res.status(500).json({
             success: false,
             error: 'Server Error'
@@ -370,6 +381,73 @@ exports.deleteMyFeedback = async (req, res, next) => {
         res.status(200).json({
             success: true,
             data: {}
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: 'Server Error'
+        });
+    }
+};
+
+// @desc    Get patient's feedback history
+// @route   GET /api/v1/feedback/patient/history
+// @access  Private (Patient only)
+exports.getPatientFeedbackHistory = async (req, res, next) => {
+    try {
+        const feedback = await Feedback.find({ patient: req.user.id })
+            .populate({
+                path: 'doctor',
+                select: 'firstName lastName specialty'
+            })
+            .populate({
+                path: 'appointment',
+                select: 'date reason status'
+            })
+            .sort('-createdAt');
+
+        res.status(200).json({
+            success: true,
+            count: feedback.length,
+            data: feedback
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: 'Server Error'
+        });
+    }
+};
+
+// @desc    Get appointments available for feedback
+// @route   GET /api/v1/feedback/patient/appointments
+// @access  Private (Patient only)
+exports.getAppointmentsForFeedback = async (req, res, next) => {
+    try {
+        // Find completed appointments that don't have feedback yet
+        const appointments = await Appointment.find({
+            patient: req.user.id,
+            status: 'completed'
+        })
+        .populate({
+            path: 'doctor',
+            select: 'firstName lastName specialty'
+        })
+        .sort('-date');
+
+        // Filter out appointments that already have feedback
+        const appointmentsWithoutFeedback = [];
+        for (let appointment of appointments) {
+            const existingFeedback = await Feedback.findOne({ appointment: appointment._id });
+            if (!existingFeedback) {
+                appointmentsWithoutFeedback.push(appointment);
+            }
+        }
+
+        res.status(200).json({
+            success: true,
+            count: appointmentsWithoutFeedback.length,
+            data: appointmentsWithoutFeedback
         });
     } catch (error) {
         res.status(500).json({

@@ -196,37 +196,36 @@ exports.deletePatient = async (req, res, next) => {
 };
 
 // @desc    Get patient dashboard data
-// @route   GET /api/v1/patients/:id/dashboard
-// @access  Private
+// @route   GET /api/v1/patients/dashboard
+// @access  Private (Patient only)
 exports.getPatientDashboard = async (req, res) => {
     try {
-        const patient = await Patient.findById(req.params.id);
+        // Find patient by user ID (logged-in user)
+        const patient = await Patient.findOne({ user: req.user.id });
 
         if (!patient) {
             return res.status(404).json({
                 success: false,
-                error: 'Patient not found'
-            });
-        }
-
-        // Ensure user owns the patient profile or is admin
-        if (patient.user.toString() !== req.user.id && req.user.role !== 'admin') {
-            return res.status(401).json({
-                success: false,
-                error: 'Not authorized to access this dashboard'
+                error: 'Patient profile not found'
             });
         }
 
         // Get upcoming appointments
         const upcomingAppointments = await Appointment.countDocuments({
             patient: patient._id,
-            date: { $gte: new Date() }
+            date: { $gte: new Date() },
+            status: { $in: ['scheduled', 'confirmed'] }
         });
 
         // Get past appointments
         const pastAppointments = await Appointment.countDocuments({
             patient: patient._id,
             date: { $lt: new Date() }
+        });
+
+        // Get total appointments
+        const totalAppointments = await Appointment.countDocuments({
+            patient: patient._id
         });
 
         // Get medical records count (placeholder until we create the model)
@@ -240,11 +239,17 @@ exports.getPatientDashboard = async (req, res) => {
             data: {
                 upcomingAppointments,
                 pastAppointments,
+                totalAppointments,
                 medicalRecords,
-                notifications
+                notifications,
+                patient: {
+                    id: patient._id,
+                    userId: patient.user
+                }
             }
         });
     } catch (error) {
+        console.error('Dashboard error:', error);
         res.status(500).json({
             success: false,
             error: 'Server error fetching dashboard data'
