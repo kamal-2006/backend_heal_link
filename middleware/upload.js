@@ -2,10 +2,11 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 
-// Create upload directory if it doesn't exist
-const uploadDir = 'uploads/medical-reports';
+// Create upload directory with absolute path
+const uploadDir = path.join(__dirname, '..', 'uploads', 'medical-reports');
 if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
+  console.log(`Created upload directory: ${uploadDir}`);
 }
 
 // Configure storage
@@ -14,31 +15,33 @@ const storage = multer.diskStorage({
     cb(null, uploadDir);
   },
   filename: function (req, file, cb) {
-    // Create unique filename: userId_timestamp_originalname
+    // Create unique filename: patient_userId_timestamp_random.extension
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
     const userId = req.user?.id || 'unknown';
-    cb(null, `patient_${userId}_${uniqueSuffix}${path.extname(file.originalname)}`);
+    const extension = path.extname(file.originalname);
+    cb(null, `patient_${userId}_${uniqueSuffix}${extension}`);
   }
 });
 
 // File filter to accept only specific file types
 const fileFilter = (req, file, cb) => {
-  // Accept images, PDFs, and common document formats
+  // Accept ONLY images and PDFs (NO text files or documents)
   const allowedTypes = [
     'image/jpeg',
+    'image/jpg',
     'image/png',
     'image/gif',
     'image/webp',
-    'application/pdf',
-    'application/msword',
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    'text/plain'
+    'application/pdf'
   ];
 
-  if (allowedTypes.includes(file.mimetype)) {
+  const allowedExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.pdf'];
+  const fileExtension = path.extname(file.originalname).toLowerCase();
+
+  if (allowedTypes.includes(file.mimetype) && allowedExtensions.includes(fileExtension)) {
     cb(null, true);
   } else {
-    cb(new Error('Invalid file type. Only images, PDFs, and documents are allowed.'), false);
+    cb(new Error('Invalid file type. Only images (JPEG, PNG, GIF, WEBP) and PDF files are allowed.'), false);
   }
 };
 
@@ -81,7 +84,7 @@ const handleUploadError = (error, req, res, next) => {
     }
   }
   
-  if (error.message === 'Invalid file type. Only images, PDFs, and documents are allowed.') {
+  if (error.message.includes('Invalid file type')) {
     return res.status(400).json({
       success: false,
       error: error.message

@@ -19,15 +19,17 @@ app.use(express.json());
 // Enable CORS for frontend origin
 app.use(
   cors({
-    origin: ["http://localhost:3000", process.env.FRONTEND_ORIGIN].filter(
+    origin: ["http://localhost:3000", "http://localhost:3001", process.env.FRONTEND_ORIGIN].filter(
       Boolean
     ),
     credentials: true,
   })
 );
 
-// Serve static files from uploads directory
-app.use('/uploads', express.static('uploads'));
+// Serve static files from uploads directory with absolute path
+const uploadsPath = path.join(__dirname, 'uploads');
+app.use('/uploads', express.static(uploadsPath));
+console.log(`Serving static files from: ${uploadsPath}`);
 
 // Mount routers
 app.use("/api/v1/auth", require("./routes/auth"));
@@ -39,6 +41,7 @@ app.use("/api/v1/prescriptions", require("./routes/prescriptions"));
 app.use("/api/v1/feedback", require("./routes/feedback"));
 app.use("/api/v1/records", require("./routes/medicalRecords"));
 app.use("/api/v1/medications", require("./routes/medications"));
+app.use("/api/v1/nurse", require("./routes/nurse"));
 
 // Error handler middleware (must be last)
 app.use(require("./middleware/error"));

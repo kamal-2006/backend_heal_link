@@ -18,7 +18,7 @@ const { protect, authorize } = require('../middleware/auth');
 
 router
   .route('/')
-  .get(getAppointments);
+  .get(protect, getAppointments);  // Now requires authentication
 
 router
   .route('/book')
@@ -30,9 +30,9 @@ router
 
 router
   .route('/:id')
-  .get(getAppointment)
-  .put(updateAppointment)
-  .delete(deleteAppointment);
+  .get(protect, getAppointment)  // Now requires authentication
+  .put(protect, updateAppointment)
+  .delete(protect, deleteAppointment);
 
 router
   .route('/:id/cancel')

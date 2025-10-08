@@ -4,17 +4,17 @@ const Doctor = require("../models/Doctor");
 const Patient = require("../models/Patient");
 
 // Helper function to update doctor availability based on appointments
-const updateDoctorAvailability = async (doctorId) => {
+const updateDoctorAvailability = async (doctorDocId) => {
     try {
-        // Get all confirmed and scheduled appointments for this doctor
-        const appointments = await Appointment.find({
-            doctor: doctorId,
+        // Get doctor
+        const doctor = await Doctor.findById(doctorDocId);
+    if (!doctor) return;
+
+    // Get all confirmed and scheduled appointments for this doctor (by user id)
+    const appointments = await Appointment.find({
+            doctor: doctor.user,
             status: { $in: ['confirmed', 'scheduled'] }
         }).sort({ date: 1 });
-
-    // Get doctor
-    const doctor = await Doctor.findById(doctorId);
-    if (!doctor) return;
 
     // Generate timeSlots from appointments
     const timeSlots = appointments.map((appointment) => {
@@ -45,17 +45,36 @@ const updateDoctorAvailability = async (doctorId) => {
 
 // @desc    Get all appointments
 // @route   GET /api/v1/appointments
-// @access  Private
+// @access  Private (Role-based filtering)
 exports.getAppointments = async (req, res, next) => {
   try {
-    // Get all appointments for admin view
-    const query = Appointment.find()
+    let filter = {};
+    
+    // Filter appointments based on user role
+    if (req.user) {
+      if (req.user.role === 'patient') {
+        // Patient can only see their own appointments
+        const patient = await Patient.findOne({ user: req.user.id });
+        if (!patient) {
+          return res.status(404).json({
+            success: false,
+            error: 'Patient profile not found'
+          });
+        }
+        // Appointment.patient references User, so use the logged-in user id
+        filter.patient = req.user.id;
+      } else if (req.user.role === 'doctor') {
+        // Doctor can only see their appointments
+        filter.doctor = req.user.id;
+      }
+      // Admin sees all appointments (no filter)
+    }
+
+    // Get appointments with filter
+    const query = Appointment.find(filter)
       .populate({
         path: "doctor",
-        populate: {
-          path: "user",
-          select: "firstName lastName",
-        },
+        select: "firstName lastName email",
       })
       .populate({
         path: "patient",
@@ -67,7 +86,7 @@ exports.getAppointments = async (req, res, next) => {
     const limit = parseInt(req.query.limit, 10) || 10;
     const startIndex = (page - 1) * limit;
     const endIndex = page * limit;
-    const total = await Appointment.countDocuments();
+    const total = await Appointment.countDocuments(filter);
 
     query.skip(startIndex).limit(limit).sort({ date: -1 });
 
@@ -97,6 +116,7 @@ exports.getAppointments = async (req, res, next) => {
       data: appointments,
     });
   } catch (error) {
+    console.error('Get appointments error:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 };
@@ -121,10 +141,7 @@ exports.getPatientAppointments = async (req, res) => {
     const appointments = await Appointment.find({ patient: req.params.id })
       .populate({
         path: "doctor",
-        populate: {
-          path: "user",
-          select: "firstName lastName",
-        },
+        select: "firstName lastName email",
       })
       .sort({ date: -1 });
 
@@ -149,10 +166,7 @@ exports.getAppointment = async (req, res, next) => {
     const appointment = await Appointment.findById(req.params.id)
       .populate({
         path: "doctor",
-        populate: {
-          path: "user",
-          select: "firstName lastName",
-        },
+        select: "firstName lastName email",
       })
       .populate({
         path: "patient",
@@ -166,12 +180,23 @@ exports.getAppointment = async (req, res, next) => {
       });
     }
 
-    // Make sure user is appointment owner or admin
-    if (
-      req.user.role !== "admin" &&
-      appointment.patient.toString() !== req.user.id &&
-      appointment.doctor.user._id.toString() !== req.user.id
-    ) {
+    // Authorization check: Ensure user can access this appointment
+    let isAuthorized = false;
+    
+    if (req.user.role === 'admin') {
+      isAuthorized = true;
+    } else if (req.user.role === 'doctor') {
+      // Doctor can see appointments where they are the doctor
+      isAuthorized = appointment.doctor && appointment.doctor._id.toString() === req.user.id;
+    } else if (req.user.role === 'patient') {
+      // Patient needs to check if they own this appointment via Patient model
+      const patient = await Patient.findOne({ user: req.user.id });
+      if (patient && appointment.patient) {
+        isAuthorized = appointment.patient._id.toString() === patient._id.toString();
+      }
+    }
+
+    if (!isAuthorized) {
       return res.status(401).json({
         success: false,
         error: "Not authorized to access this appointment",
@@ -214,7 +239,34 @@ exports.bookAppointment = async (req, res, next) => {
           error: "Patient not found",
         });
       }
-    } else {
+
+      // Create appointment data for doctor booking
+      const appointment = await Appointment.create({
+        doctor: doctorUserId,
+        patient: patientUserId,
+        date: new Date(req.body.date),
+        reason: req.body.reason || "Consultation",
+        notes: req.body.notes || '',
+        status: 'confirmed' // Doctor bookings are auto-confirmed
+      });
+
+      // Populate the appointment for the response
+      const populatedAppointment = await Appointment.findById(appointment._id)
+        .populate({
+          path: 'doctor',
+          select: 'firstName lastName email'
+        })
+        .populate({
+          path: 'patient',
+          select: 'firstName lastName email'
+        });
+
+      res.status(201).json({
+        success: true,
+        data: populatedAppointment
+      });
+
+    } else if (req.user.role === "patient") {
       // Patient is booking appointment
       patientUserId = req.user.id;
 
@@ -227,76 +279,82 @@ exports.bookAppointment = async (req, res, next) => {
         });
       }
 
-        // Resolve doctor: support both Doctor document ID and Doctor's User ID
-        const doctorIdentifier = req.body.doctor;
-        let doctor = null;
-        if (doctorIdentifier) {
-            // Try by Doctor document ID first
-            doctor = await Doctor.findById(doctorIdentifier).populate('user');
-            if (!doctor) {
-                // Fallback: try by User ID linked to a doctor profile
-                doctor = await Doctor.findOne({ user: doctorIdentifier }).populate('user');
-            }
-        }
+      // Resolve doctor: support both Doctor document ID and Doctor's User ID
+      const doctorIdentifier = req.body.doctor;
+      let doctor = null;
+      if (doctorIdentifier) {
+        // Try by Doctor document ID first
+        doctor = await Doctor.findById(doctorIdentifier).populate('user');
         if (!doctor) {
-            return res.status(404).json({
-                success: false,
-                error: 'Doctor not found'
-            });
+          // Fallback: try by User ID linked to a doctor profile
+          doctor = await Doctor.findOne({ user: doctorIdentifier }).populate('user');
         }
-
-        // Validate and normalize date
-        const appointmentDate = new Date(req.body.date);
-        if (isNaN(appointmentDate.getTime())) {
-            return res.status(400).json({
-                success: false,
-                error: 'Invalid appointment date'
-            });
-        }
-
-        // Check for existing appointment at the same time
-        const existingAppointment = await Appointment.findOne({
-            doctor: doctor.user._id, // Use the user ID from doctor
-            date: appointmentDate,
-            status: { $ne: 'cancelled' } // Not cancelled
-        });
-
-        if (existingAppointment) {
-            return res.status(400).json({
-                success: false,
-                error: 'Doctor is not available at this time'
-            });
-        }
-
-        // Create appointment with proper references
-        const appointment = await Appointment.create({
-            doctor: doctor.user._id, // Use the user ID from doctor
-            patient: req.user.id, // Current user is the patient
-            date: appointmentDate,
-            reason: req.body.reason,
-            notes: req.body.notes || '',
-            status: 'scheduled'
-        });
-
-        // Populate the appointment for the response
-        const populatedAppointment = await Appointment.findById(appointment._id)
-            .populate({
-                path: 'doctor',
-                select: 'firstName lastName email'
-            })
-            .populate({
-                path: 'patient',
-                select: 'firstName lastName email'
-            });
-
-        // Update doctor availability with new appointment
-        await updateDoctorAvailability(doctor._id);
-        
-        res.status(201).json({
-            success: true,
-            data: populatedAppointment
+      }
+      if (!doctor) {
+        return res.status(404).json({
+          success: false,
+          error: 'Doctor not found'
         });
       }
+
+      // Validate and normalize date
+      const appointmentDate = new Date(req.body.date);
+      if (isNaN(appointmentDate.getTime())) {
+        return res.status(400).json({
+          success: false,
+          error: 'Invalid appointment date'
+        });
+      }
+
+      // Check for existing appointment at the same time
+      const existingAppointment = await Appointment.findOne({
+        doctor: doctor.user._id, // Use the user ID from doctor
+        date: appointmentDate,
+        status: { $ne: 'cancelled' } // Not cancelled
+      });
+
+      if (existingAppointment) {
+        return res.status(400).json({
+          success: false,
+          error: 'Doctor is not available at this time'
+        });
+      }
+
+      // Create appointment with proper references
+      const appointment = await Appointment.create({
+        doctor: doctor.user._id, // Use the user ID from doctor
+        patient: req.user.id, // Current user is the patient
+        date: appointmentDate,
+        reason: req.body.reason,
+        notes: req.body.notes || '',
+        status: 'scheduled'
+      });
+
+      // Populate the appointment for the response
+      const populatedAppointment = await Appointment.findById(appointment._id)
+        .populate({
+          path: 'doctor',
+          select: 'firstName lastName email'
+        })
+        .populate({
+          path: 'patient',
+          select: 'firstName lastName email'
+        });
+
+      // Update doctor availability with new appointment
+      await updateDoctorAvailability(doctor._id);
+      
+      res.status(201).json({
+        success: true,
+        data: populatedAppointment
+      });
+
+    } else {
+      return res.status(403).json({
+        success: false,
+        error: 'Only patients and doctors can book appointments'
+      });
+    }
     } catch (error) {
         res.status(400).json({
             success: false,
@@ -312,7 +370,6 @@ exports.cancelAppointment = async (req, res, next) => {
   try {
     const appointment = await Appointment.findById(req.params.id).populate({
       path: "doctor",
-      populate: { path: "user" },
     });
 
     if (!appointment) {
@@ -326,7 +383,7 @@ exports.cancelAppointment = async (req, res, next) => {
     if (
       req.user.role !== "admin" &&
       appointment.patient.toString() !== req.user.id &&
-      appointment.doctor.user._id.toString() !== req.user.id
+      appointment.doctor._id.toString() !== req.user.id
     ) {
       return res.status(401).json({
         success: false,
@@ -399,7 +456,7 @@ exports.updateAppointment = async (req, res, next) => {
     })
       .populate({
         path: "doctor",
-        select: "firstName lastName specialty",
+        select: "firstName lastName email",
       })
       .populate({
         path: "patient",
