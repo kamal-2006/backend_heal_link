@@ -5,12 +5,12 @@ const Patient = require("../models/Patient");
 
 // Helper function to update doctor availability based on appointments
 const updateDoctorAvailability = async (doctorId) => {
-    try {
-        // Get all confirmed and scheduled appointments for this doctor
-        const appointments = await Appointment.find({
-            doctor: doctorId,
-            status: { $in: ['confirmed', 'scheduled'] }
-        }).sort({ date: 1 });
+  try {
+    // Get all confirmed and scheduled appointments for this doctor
+    const appointments = await Appointment.find({
+      doctor: doctorId,
+      status: { $in: ["confirmed", "scheduled"] },
+    }).sort({ date: 1 });
 
     // Get doctor
     const doctor = await Doctor.findById(doctorId);
@@ -214,6 +214,69 @@ exports.bookAppointment = async (req, res, next) => {
           error: "Patient not found",
         });
       }
+
+      // Get doctor record for current user
+      const doctor = await Doctor.findOne({ user: doctorUserId }).populate(
+        "user"
+      );
+      if (!doctor) {
+        return res.status(404).json({
+          success: false,
+          error: "Doctor profile not found",
+        });
+      }
+
+      // Validate and normalize date
+      const appointmentDate = new Date(req.body.date);
+      if (isNaN(appointmentDate.getTime())) {
+        return res.status(400).json({
+          success: false,
+          error: "Invalid appointment date",
+        });
+      }
+
+      // Check for existing appointment at the same time
+      const existingAppointment = await Appointment.findOne({
+        doctor: doctorUserId,
+        date: appointmentDate,
+        status: { $ne: "cancelled" },
+      });
+
+      if (existingAppointment) {
+        return res.status(400).json({
+          success: false,
+          error: "Doctor is not available at this time",
+        });
+      }
+
+      // Create appointment with proper references
+      const appointment = await Appointment.create({
+        doctor: doctorUserId,
+        patient: patientUserId,
+        date: appointmentDate,
+        reason: req.body.reason,
+        notes: req.body.notes || "",
+        status: "confirmed", // <-- Set status to confirmed for doctor booking
+      });
+
+      // Populate the appointment for the response
+      const populatedAppointment = await Appointment.findById(appointment._id)
+        .populate({
+          path: "doctor",
+          select: "firstName lastName email",
+        })
+        .populate({
+          path: "patient",
+          select: "firstName lastName email",
+        });
+
+      // Update doctor availability with new appointment
+      await updateDoctorAvailability(doctor._id);
+
+      res.status(201).json({
+        success: true,
+        data: populatedAppointment,
+      });
     } else {
       // Patient is booking appointment
       patientUserId = req.user.id;
@@ -227,82 +290,84 @@ exports.bookAppointment = async (req, res, next) => {
         });
       }
 
-        // Resolve doctor: support both Doctor document ID and Doctor's User ID
-        const doctorIdentifier = req.body.doctor;
-        let doctor = null;
-        if (doctorIdentifier) {
-            // Try by Doctor document ID first
-            doctor = await Doctor.findById(doctorIdentifier).populate('user');
-            if (!doctor) {
-                // Fallback: try by User ID linked to a doctor profile
-                doctor = await Doctor.findOne({ user: doctorIdentifier }).populate('user');
-            }
-        }
+      // Resolve doctor: support both Doctor document ID and Doctor's User ID
+      const doctorIdentifier = req.body.doctor;
+      let doctor = null;
+      if (doctorIdentifier) {
+        // Try by Doctor document ID first
+        doctor = await Doctor.findById(doctorIdentifier).populate("user");
         if (!doctor) {
-            return res.status(404).json({
-                success: false,
-                error: 'Doctor not found'
-            });
+          // Fallback: try by User ID linked to a doctor profile
+          doctor = await Doctor.findOne({ user: doctorIdentifier }).populate(
+            "user"
+          );
         }
-
-        // Validate and normalize date
-        const appointmentDate = new Date(req.body.date);
-        if (isNaN(appointmentDate.getTime())) {
-            return res.status(400).json({
-                success: false,
-                error: 'Invalid appointment date'
-            });
-        }
-
-        // Check for existing appointment at the same time
-        const existingAppointment = await Appointment.findOne({
-            doctor: doctor.user._id, // Use the user ID from doctor
-            date: appointmentDate,
-            status: { $ne: 'cancelled' } // Not cancelled
-        });
-
-        if (existingAppointment) {
-            return res.status(400).json({
-                success: false,
-                error: 'Doctor is not available at this time'
-            });
-        }
-
-        // Create appointment with proper references
-        const appointment = await Appointment.create({
-            doctor: doctor.user._id, // Use the user ID from doctor
-            patient: req.user.id, // Current user is the patient
-            date: appointmentDate,
-            reason: req.body.reason,
-            notes: req.body.notes || '',
-            status: 'scheduled'
-        });
-
-        // Populate the appointment for the response
-        const populatedAppointment = await Appointment.findById(appointment._id)
-            .populate({
-                path: 'doctor',
-                select: 'firstName lastName email'
-            })
-            .populate({
-                path: 'patient',
-                select: 'firstName lastName email'
-            });
-
-        // Update doctor availability with new appointment
-        await updateDoctorAvailability(doctor._id);
-        
-        res.status(201).json({
-            success: true,
-            data: populatedAppointment
+      }
+      if (!doctor) {
+        return res.status(404).json({
+          success: false,
+          error: "Doctor not found",
         });
       }
-    } catch (error) {
-        res.status(400).json({
-            success: false,
-            error: error.message
+
+      // Validate and normalize date
+      const appointmentDate = new Date(req.body.date);
+      if (isNaN(appointmentDate.getTime())) {
+        return res.status(400).json({
+          success: false,
+          error: "Invalid appointment date",
         });
+      }
+
+      // Check for existing appointment at the same time
+      const existingAppointment = await Appointment.findOne({
+        doctor: doctor.user._id, // Use the user ID from doctor
+        date: appointmentDate,
+        status: { $ne: "cancelled" }, // Not cancelled
+      });
+
+      if (existingAppointment) {
+        return res.status(400).json({
+          success: false,
+          error: "Doctor is not available at this time",
+        });
+      }
+
+      // Create appointment with proper references
+      const appointment = await Appointment.create({
+        doctor: doctor.user._id, // Use the user ID from doctor
+        patient: req.user.id, // Current user is the patient
+        date: appointmentDate,
+        reason: req.body.reason,
+        notes: req.body.notes || "",
+        status: "scheduled",
+      });
+
+      // Populate the appointment for the response
+      const populatedAppointment = await Appointment.findById(appointment._id)
+        .populate({
+          path: "doctor",
+          select: "firstName lastName email",
+        })
+        .populate({
+          path: "patient",
+          select: "firstName lastName email",
+        });
+
+      // Update doctor availability with new appointment
+      await updateDoctorAvailability(doctor._id);
+
+      res.status(201).json({
+        success: true,
+        data: populatedAppointment,
+      });
     }
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      error: error.message,
+    });
+  }
 };
 
 // @desc    Cancel appointment
@@ -534,102 +599,107 @@ exports.getDoctorAvailability = async (req, res) => {
       }
     }
 
-        res.status(200).json({
-            success: true,
-            data: {
-                date: date.toISOString().split('T')[0],
-                timeSlots
-            }
-        });
-    } catch (error) {
-        res.status(500).json({
-            success: false,
-            error: 'Server Error'
-        });
-    }
+    res.status(200).json({
+      success: true,
+      data: {
+        date: date.toISOString().split("T")[0],
+        timeSlots,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: "Server Error",
+    });
+  }
 };
 
 // @desc    Update expired appointments to completed status
 // @route   PUT /api/v1/appointments/update-status
 // @access  Private (can be called internally or by admin)
 exports.updateExpiredAppointments = async (req, res, next) => {
-    try {
-        const now = new Date();
-        
-        // Find all appointments that have passed their scheduled time but are still scheduled or confirmed
-        const expiredAppointments = await Appointment.updateMany(
-            {
-                date: { $lt: now },
-                status: { $in: ['scheduled', 'confirmed'] }
-            },
-            {
-                $set: { status: 'completed' }
-            }
-        );
+  try {
+    const now = new Date();
 
-        res.status(200).json({
-            success: true,
-            message: `Updated ${expiredAppointments.modifiedCount} appointments to completed status`,
-            data: expiredAppointments
-        });
-    } catch (error) {
-        res.status(500).json({
-            success: false,
-            error: error.message
-        });
-    }
+    // Find all appointments that have passed their scheduled time but are still scheduled or confirmed
+    const expiredAppointments = await Appointment.updateMany(
+      {
+        date: { $lt: now },
+        status: { $in: ["scheduled", "confirmed"] },
+      },
+      {
+        $set: { status: "completed" },
+      }
+    );
+
+    res.status(200).json({
+      success: true,
+      message: `Updated ${expiredAppointments.modifiedCount} appointments to completed status`,
+      data: expiredAppointments,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
 };
 
 // @desc    Confirm appointment (for doctors)
 // @route   PUT /api/v1/appointments/:id/confirm
 // @access  Private (doctors only)
 exports.confirmAppointment = async (req, res, next) => {
-    try {
-        let appointment = await Appointment.findById(req.params.id);
+  try {
+    let appointment = await Appointment.findById(req.params.id);
 
-        if (!appointment) {
-            return res.status(404).json({
-                success: false,
-                error: 'Appointment not found'
-            });
-        }
-
-        // Check if the current user is the doctor for this appointment or an admin
-        if (req.user.role !== 'admin' && appointment.doctor.toString() !== req.user.id) {
-            return res.status(401).json({
-                success: false,
-                error: 'Not authorized to confirm this appointment'
-            });
-        }
-
-        // Only allow confirmation of scheduled appointments
-        if (appointment.status !== 'scheduled') {
-            return res.status(400).json({
-                success: false,
-                error: `Cannot confirm appointment with status: ${appointment.status}`
-            });
-        }
-
-        appointment = await Appointment.findByIdAndUpdate(
-            req.params.id,
-            { status: 'confirmed' },
-            { new: true, runValidators: true }
-        ).populate({
-            path: 'doctor',
-            select: 'firstName lastName specialty'
-        }).populate({
-            path: 'patient',
-            select: 'firstName lastName email phone'
-        });
-
-        res.status(200).json({
-            success: true,
-            data: appointment
-        });
-    } catch (error) {
-        res.status(400).json({
-            success: false,
-            error: error.message
-        });
+    if (!appointment) {
+      return res.status(404).json({
+        success: false,
+        error: "Appointment not found",
+      });
     }
+
+    // Check if the current user is the doctor for this appointment or an admin
+    if (
+      req.user.role !== "admin" &&
+      appointment.doctor.toString() !== req.user.id
+    ) {
+      return res.status(401).json({
+        success: false,
+        error: "Not authorized to confirm this appointment",
+      });
+    }
+
+    // Only allow confirmation of scheduled appointments
+    if (appointment.status !== "scheduled") {
+      return res.status(400).json({
+        success: false,
+        error: `Cannot confirm appointment with status: ${appointment.status}`,
+      });
+    }
+
+    appointment = await Appointment.findByIdAndUpdate(
+      req.params.id,
+      { status: "confirmed" },
+      { new: true, runValidators: true }
+    )
+      .populate({
+        path: "doctor",
+        select: "firstName lastName specialty",
+      })
+      .populate({
+        path: "patient",
+        select: "firstName lastName email phone",
+      });
+
+    res.status(200).json({
+      success: true,
+      data: appointment,
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      error: error.message,
+    });
+  }
 };

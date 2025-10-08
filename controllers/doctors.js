@@ -1,5 +1,6 @@
 const Doctor = require('../models/Doctor');
 const User = require('../models/User');
+const Appointment = require('../models/Appointment');
 
 // @desc    Get all doctors
 // @route   GET /api/v1/doctors
@@ -78,48 +79,39 @@ exports.getDoctor = async (req, res, next) => {
 // @access  Public
 exports.getAvailableDoctors = async (req, res, next) => {
     try {
-        const { date, specialization, time } = req.query;
-        
-        let query = { isActive: true };
-        
-        if (specialization && specialization !== 'all') {
-            query.specialization = specialization;
+        const { date, appointmentId } = req.query;
+
+        if (!date) {
+            return res.status(400).json({
+                success: false,
+                error: "Please provide a date to check for availability."
+            });
         }
-        
-        const doctors = await Doctor.find(query).populate({
+
+        const requestedDate = new Date(date);
+
+        const conflictQuery = {
+            date: requestedDate,
+            status: { $ne: 'cancelled' }
+        };
+
+        if (appointmentId) {
+            conflictQuery._id = { $ne: appointmentId };
+        }
+
+        // Find all appointments at the requested date and time
+        const conflictingAppointments = await Appointment.find(conflictQuery).select('doctor');
+
+        const conflictingDoctorIds = conflictingAppointments.map(a => a.doctor.toString());
+
+        // Find all doctors, then filter out those with conflicts
+        const allDoctors = await Doctor.find({ isActive: true }).populate({
             path: 'user',
             select: 'firstName lastName email phone'
         });
-        
-        // Filter doctors based on their availability
-        let availableDoctors = doctors;
-        
-        if (date) {
-            const requestedDate = new Date(date);
-            const dayOfWeek = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][requestedDate.getDay()];
-            
-            // Filter doctors by day availability
-            availableDoctors = doctors.filter(doctor => 
-                doctor.availability && 
-                doctor.availability.days && 
-                doctor.availability.days.includes(dayOfWeek)
-            );
-            
-            // If time is provided, further filter by time slots
-            if (time) {
-                availableDoctors = availableDoctors.filter(doctor => {
-                    if (!doctor.availability || !doctor.availability.timeSlots || doctor.availability.timeSlots.length === 0) {
-                        return false;
-                    }
-                    
-                    // Check if the requested time falls within any of the doctor's time slots
-                    return doctor.availability.timeSlots.some(slot => {
-                        return time >= slot.startTime && time <= slot.endTime;
-                    });
-                });
-            }
-        }
-        
+
+        const availableDoctors = allDoctors.filter(doctor => !conflictingDoctorIds.includes(doctor._id.toString()));
+
         res.status(200).json({ 
             success: true, 
             count: availableDoctors.length, 

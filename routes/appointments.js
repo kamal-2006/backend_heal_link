@@ -30,9 +30,9 @@ router
 
 router
   .route('/:id')
-  .get(getAppointment)
-  .put(updateAppointment)
-  .delete(deleteAppointment);
+  .get(protect, getAppointment)
+  .put(protect, updateAppointment)
+  .delete(protect, authorize('admin'), deleteAppointment);
 
 router
   .route('/:id/cancel')
