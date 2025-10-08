@@ -30,9 +30,9 @@ router
 
 router
   .route('/:id')
-  .get(protect, getAppointment)  // Now requires authentication
+  .get(protect, getAppointment)
   .put(protect, updateAppointment)
-  .delete(protect, deleteAppointment);
+  .delete(protect, authorize('admin'), deleteAppointment);
 
 router
   .route('/:id/cancel')
