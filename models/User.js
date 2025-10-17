@@ -20,6 +20,7 @@ const UserSchema = new mongoose.Schema({
       /^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/,
       'Please add a valid email',
     ],
+    index: true
   },
   phone: {
     type: String,
@@ -31,6 +32,7 @@ const UserSchema = new mongoose.Schema({
     type: String,
     enum: ['patient', 'doctor', 'nurse', 'admin'],
     default: 'patient',
+    index: true
   },
   password: {
     type: String,

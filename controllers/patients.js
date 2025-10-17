@@ -923,3 +923,42 @@ exports.deletePatientForAdmin = async (req, res, next) => {
         });
     }
 };
+
+exports.getPatientDashboardData = async (req, res, next) => {
+    try {
+        const patient = await Patient.findOne({ user: req.user.id });
+
+        if (!patient) {
+            return res.status(404).json({
+                success: false,
+                error: 'Patient not found'
+            });
+        }
+
+        const [appointments, medications, notifications, reports] = await Promise.all([
+            Appointment.find({ patient: patient._id }).populate('doctor', 'firstName lastName'),
+            // Assuming you have a Medication model
+            // Medication.find({ patient: patient._id, status: 'active' }),
+            // Assuming you have a Notification model
+            // Notification.find({ user: req.user.id, read: false }),
+            // Assuming you have a MedicalRecord model
+            // MedicalRecord.find({ patient: patient._id })
+        ]);
+
+        res.status(200).json({
+            success: true,
+            data: {
+                appointments,
+                prescriptions: medications,
+                notifications,
+                reports
+            }
+        });
+    } catch (error) {
+        console.error('Error fetching patient dashboard data:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Server Error'
+        });
+    }
+};

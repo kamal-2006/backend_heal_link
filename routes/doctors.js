@@ -6,7 +6,10 @@ const {
     getAvailableDoctors,
     createDoctor,
     updateDoctor,
-    deleteDoctor
+    deleteDoctor,
+    getDoctorProfile,
+    updateDoctorProfile,
+    getDoctorDashboardData
 } = require('../controllers/doctors');
 
 const { protect, authorize } = require('../middleware/auth');
@@ -17,7 +20,14 @@ const router = express.Router();
 router.get('/', getDoctors);
 router.get('/available', getAvailableDoctors);
 router.get('/specialization/:specialization', getDoctorsBySpecialization);
+
+// Doctor profile routes
+router.route('/me').get(protect, authorize('doctor'), getDoctorProfile);
+router.route('/me').put(protect, authorize('doctor'), updateDoctorProfile);
+
 router.get('/:id', getDoctor);
+
+router.route('/dashboard-data').get(protect, authorize('doctor'), getDoctorDashboardData);
 
 // Doctor management routes (no auth required for admin features)
 router.post('/', createDoctor);

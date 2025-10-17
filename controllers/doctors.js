@@ -7,10 +7,12 @@ const Appointment = require('../models/Appointment');
 // @access  Public
 exports.getDoctors = async (req, res, next) => {
     try {
-        const doctors = await Doctor.find({ isActive: true }).populate({
+        const doctors = await Doctor.find({ isActive: true })
+        .populate({
             path: 'user',
             select: 'firstName lastName email phone'
-        });
+        })
+        .select('specialization user rating consultationFee');
         
         res.status(200).json({ 
             success: true, 
@@ -36,7 +38,8 @@ exports.getDoctorsBySpecialization = async (req, res, next) => {
         }).populate({
             path: 'user',
             select: 'firstName lastName email phone'
-        });
+        })
+        .select('specialization user rating consultationFee');
         
         res.status(200).json({ 
             success: true, 
@@ -105,10 +108,12 @@ exports.getAvailableDoctors = async (req, res, next) => {
         const conflictingDoctorIds = conflictingAppointments.map(a => a.doctor.toString());
 
         // Find all doctors, then filter out those with conflicts
-        const allDoctors = await Doctor.find({ isActive: true }).populate({
+        const allDoctors = await Doctor.find({ isActive: true })
+        .populate({
             path: 'user',
             select: 'firstName lastName email phone'
-        });
+        })
+        .select('specialization user rating consultationFee');
 
         const availableDoctors = allDoctors.filter(doctor => !conflictingDoctorIds.includes(doctor._id.toString()));
 
@@ -354,6 +359,145 @@ exports.deleteDoctor = async (req, res, next) => {
         res.status(400).json({
             success: false,
             error: error.message
+        });
+    }
+};
+
+// @desc    Get doctor profile
+// @route   GET /api/v1/doctors/me
+// @access  Private (Doctor owner)
+exports.getDoctorProfile = async (req, res, next) => {
+    try {
+        const doctor = await Doctor.findOne({ user: req.user.id }).populate({
+            path: 'user',
+            select: 'firstName lastName email phone'
+        });
+
+        if (!doctor) {
+            return res.status(404).json({
+                success: false,
+                error: 'Doctor not found'
+            });
+        }
+
+        res.status(200).json({ success: true, data: doctor });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+// @desc    Update doctor profile
+// @route   PUT /api/v1/doctors/me
+// @access  Private (Doctor owner)
+exports.updateDoctorProfile = async (req, res, next) => {
+    try {
+        let doctor = await Doctor.findOne({ user: req.user.id });
+
+        if (!doctor) {
+            return res.status(404).json({
+                success: false,
+                error: 'Doctor not found'
+            });
+        }
+
+        // Update doctor information
+        const doctorUpdateData = {};
+        if (req.body.specialization) doctorUpdateData.specialization = req.body.specialization;
+        if (req.body.experience) doctorUpdateData.experience = req.body.experience;
+        if (req.body.qualification) doctorUpdateData.qualification = req.body.qualification;
+        if (req.body.about) doctorUpdateData.about = req.body.about;
+        if (req.body.consultationFee) doctorUpdateData.consultationFee = req.body.consultationFee;
+        if (req.body.gender) doctorUpdateData.gender = req.body.gender;
+        if (req.body.dateOfBirth) doctorUpdateData.dateOfBirth = req.body.dateOfBirth;
+        if (req.body.bloodType) doctorUpdateData.bloodType = req.body.bloodType;
+        if (req.body.availability) doctorUpdateData.availability = req.body.availability;
+        if (req.body.hospital) doctorUpdateData.hospital = req.body.hospital;
+        if (req.body.hasOwnProperty('isActive')) doctorUpdateData.isActive = req.body.isActive;
+
+        doctor = await Doctor.findByIdAndUpdate(doctor._id, doctorUpdateData, {
+            new: true,
+            runValidators: true
+        });
+
+        // Update user information if provided
+        const userUpdateData = {};
+        if (req.body.firstName) userUpdateData.firstName = req.body.firstName;
+        if (req.body.lastName) userUpdateData.lastName = req.body.lastName;
+        if (req.body.phone) userUpdateData.phone = req.body.phone;
+
+        if (Object.keys(userUpdateData).length > 0) {
+            await User.findByIdAndUpdate(req.user.id, userUpdateData, {
+                new: true,
+                runValidators: true
+            });
+        }
+
+        const updatedDoctor = await Doctor.findById(doctor._id).populate({
+            path: 'user',
+            select: 'firstName lastName email phone'
+        });
+
+        res.status(200).json({
+            success: true,
+            data: updatedDoctor
+        });
+    } catch (error) {
+        res.status(400).json({
+            success: false,
+            error: error.message
+        });
+    }
+};
+
+exports.getDoctorDashboardData = async (req, res, next) => {
+    try {
+        const doctor = await Doctor.findOne({ user: req.user.id });
+
+        if (!doctor) {
+            return res.status(404).json({
+                success: false,
+                error: 'Doctor not found'
+            });
+        }
+
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const tomorrow = new Date(today);
+        tomorrow.setDate(tomorrow.getDate() + 1);
+
+        const [appointmentsToday, totalPatients, pendingReviews, upcomingAppointments] = await Promise.all([
+            Appointment.find({
+                doctor: doctor._id,
+                date: {
+                    $gte: today,
+                    $lt: tomorrow
+                }
+            }).countDocuments(),
+            Appointment.distinct('patient', { doctor: doctor._id }),
+            // Assuming you have a Review model
+            // Review.find({ doctor: doctor._id, status: 'pending' }).countDocuments(),
+            Appointment.find({
+                doctor: doctor._id,
+                date: { $gte: new Date() },
+                status: { $in: ['confirmed', 'pending'] }
+            }).populate('patient', 'firstName lastName').limit(4)
+        ]);
+
+        res.status(200).json({
+            success: true,
+            data: {
+                appointmentsToday,
+                totalPatients: totalPatients.length,
+                pendingReviews: 0, // placeholder
+                upcomingAppointments
+            }
+        });
+
+    } catch (error) {
+        console.error('Error fetching doctor dashboard data:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Server Error'
         });
     }
 };

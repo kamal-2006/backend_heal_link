@@ -14,7 +14,8 @@ const {
   getAllPatientsForAdmin,
   getPatientDetailsForAdmin,
   updatePatientForAdmin,
-  deletePatientForAdmin
+  deletePatientForAdmin,
+  getPatientDashboardData
 } = require('../controllers/patients');
 
 const router = express.Router();
@@ -39,6 +40,10 @@ router
 router
   .route('/dashboard')
   .get(protect, authorize('patient'), getPatientDashboard);
+
+router
+  .route('/dashboard-data')
+  .get(protect, authorize('patient'), getPatientDashboardData);
 
 // Admin routes (no authentication required) - MUST come before /:id routes
 router

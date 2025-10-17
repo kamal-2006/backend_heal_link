@@ -13,6 +13,17 @@ const DoctorSchema = new mongoose.Schema({
       return 'D-' + Math.floor(1000 + Math.random() * 9000);
     }
   },
+  gender: {
+    type: String,
+    enum: ['Male', 'Female', 'Other']
+  },
+  dateOfBirth: {
+    type: Date
+  },
+  bloodType: {
+    type: String,
+    enum: ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-']
+  },
   specialization: {
     type: String,
     required: [true, 'Please add a specialization'],
@@ -37,7 +48,8 @@ const DoctorSchema = new mongoose.Schema({
       'Gastroenterology',
       'Pulmonology',
       'Endocrinology'
-    ]
+    ],
+    index: true
   },
   experience: {
     type: Number,
@@ -88,7 +100,8 @@ const DoctorSchema = new mongoose.Schema({
   },
   isActive: {
     type: Boolean,
-    default: true
+    default: true,
+    index: true
   }
 }, {
   timestamps: true,
