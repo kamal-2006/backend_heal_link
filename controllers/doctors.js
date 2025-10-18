@@ -134,10 +134,6 @@ exports.getAvailableDoctors = async (req, res, next) => {
 // @route   POST /api/v1/doctors
 // @access  Private (Admin only)
 exports.createDoctor = async (req, res, next) => {
-    console.log('=== createDoctor function called ===');
-    console.log('Request body:', req.body);
-    console.log('Request headers:', req.headers);
-    
     try {
         const { 
             firstName, 
@@ -370,7 +366,7 @@ exports.getDoctorProfile = async (req, res, next) => {
     try {
         const doctor = await Doctor.findOne({ user: req.user.id }).populate({
             path: 'user',
-            select: 'firstName lastName email phone'
+            select: 'firstName lastName email phone profilePicture'
         });
 
         if (!doctor) {
@@ -406,13 +402,10 @@ exports.updateDoctorProfile = async (req, res, next) => {
         if (req.body.experience) doctorUpdateData.experience = req.body.experience;
         if (req.body.qualification) doctorUpdateData.qualification = req.body.qualification;
         if (req.body.about) doctorUpdateData.about = req.body.about;
-        if (req.body.consultationFee) doctorUpdateData.consultationFee = req.body.consultationFee;
         if (req.body.gender) doctorUpdateData.gender = req.body.gender;
-        if (req.body.dateOfBirth) doctorUpdateData.dateOfBirth = req.body.dateOfBirth;
-        if (req.body.bloodType) doctorUpdateData.bloodType = req.body.bloodType;
-        if (req.body.availability) doctorUpdateData.availability = req.body.availability;
-        if (req.body.hospital) doctorUpdateData.hospital = req.body.hospital;
-        if (req.body.hasOwnProperty('isActive')) doctorUpdateData.isActive = req.body.isActive;
+        if (req.body.availability && typeof req.body.availability === 'string') {
+            doctorUpdateData.availability = JSON.parse(req.body.availability);
+        }
 
         doctor = await Doctor.findByIdAndUpdate(doctor._id, doctorUpdateData, {
             new: true,
@@ -423,7 +416,8 @@ exports.updateDoctorProfile = async (req, res, next) => {
         const userUpdateData = {};
         if (req.body.firstName) userUpdateData.firstName = req.body.firstName;
         if (req.body.lastName) userUpdateData.lastName = req.body.lastName;
-        if (req.body.phone) userUpdateData.phone = req.body.phone;
+        if (req.body.mobileNumber) userUpdateData.phone = req.body.mobileNumber;
+        if (req.file) userUpdateData.profilePicture = req.file.path;
 
         if (Object.keys(userUpdateData).length > 0) {
             await User.findByIdAndUpdate(req.user.id, userUpdateData, {
@@ -434,7 +428,7 @@ exports.updateDoctorProfile = async (req, res, next) => {
 
         const updatedDoctor = await Doctor.findById(doctor._id).populate({
             path: 'user',
-            select: 'firstName lastName email phone'
+            select: 'firstName lastName email phone profilePicture'
         });
 
         res.status(200).json({

@@ -216,9 +216,6 @@ exports.getAppointment = async (req, res, next) => {
 // @access  Private
 exports.bookAppointment = async (req, res, next) => {
   try {
-    console.log("Booking appointment with data:", req.body);
-    console.log("User making request:", req.user);
-
     let patientUserId, doctorUserId;
 
     // Determine if this is a doctor booking for a patient or patient booking
@@ -498,10 +495,7 @@ exports.updateAppointment = async (req, res, next) => {
         await updateDoctorAvailability(doctorDoc._id);
       }
     } catch (availabilityError) {
-      console.log(
-        "Could not update doctor availability:",
-        availabilityError.message
-      );
+
     }
 
     res.status(200).json({
@@ -540,10 +534,7 @@ exports.deleteAppointment = async (req, res, next) => {
         await updateDoctorAvailability(doctorDoc._id);
       }
     } catch (availabilityError) {
-      console.log(
-        "Could not update doctor availability:",
-        availabilityError.message
-      );
+
     }
 
     res.status(200).json({ success: true, data: {} });

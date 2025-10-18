@@ -14,6 +14,8 @@ const {
 
 const { protect, authorize } = require('../middleware/auth');
 
+const { upload } = require('../middleware/upload');
+
 const router = express.Router();
 
 // Public routes
@@ -23,7 +25,7 @@ router.get('/specialization/:specialization', getDoctorsBySpecialization);
 
 // Doctor profile routes
 router.route('/me').get(protect, authorize('doctor'), getDoctorProfile);
-router.route('/me').put(protect, authorize('doctor'), updateDoctorProfile);
+router.route('/me').put(protect, authorize('doctor'), upload, updateDoctorProfile);
 
 router.get('/:id', getDoctor);
 
