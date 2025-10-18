@@ -2,6 +2,10 @@ const Appointment = require("../models/Appointment");
 const User = require("../models/User");
 const Doctor = require("../models/Doctor");
 const Patient = require("../models/Patient");
+const { bulkSwapAppointments } = require("./bulkSwap");
+
+// Export the bulkSwapAppointments function
+exports.bulkSwapAppointments = bulkSwapAppointments;
 
 // Helper function to update doctor availability based on appointments
 const updateDoctorAvailability = async (doctorId) => {
@@ -252,6 +256,24 @@ exports.bookAppointment = async (req, res, next) => {
           error: "Invalid appointment date",
         });
       }
+      
+      // Prevent booking appointments before current time
+      const now = new Date();
+      if (appointmentDate < now) {
+        return res.status(400).json({
+          success: false,
+          error: "Cannot book appointments in the past",
+        });
+      }
+      
+      // Prevent booking appointments before current time
+      const now = new Date();
+      if (appointmentDate < now) {
+        return res.status(400).json({
+          success: false,
+          error: "Cannot book appointments in the past",
+        });
+      }
 
       // Check for existing appointment at the same time
       const existingAppointment = await Appointment.findOne({
@@ -274,7 +296,7 @@ exports.bookAppointment = async (req, res, next) => {
         date: appointmentDate,
         reason: req.body.reason,
         notes: req.body.notes || "",
-        status: "confirmed", // <-- Set status to confirmed for doctor booking
+        status: "scheduled", // Using valid status from the enum
       });
 
       // Populate the appointment for the response

@@ -45,6 +45,11 @@ router
   .route('/dashboard-data')
   .get(protect, authorize('patient'), getPatientDashboardData);
 
+// Doctor routes - Allow doctors to access patient data
+router
+  .route('/')
+  .get(protect, authorize('doctor', 'admin'), getPatients);
+
 // Admin routes (no authentication required) - MUST come before /:id routes
 router
   .route('/admin/patients')

@@ -16,11 +16,11 @@ router
   .get(protect, authorize("doctor"), getDoctorProfile)
   .put(protect, authorize("doctor"), updateDoctorProfile);
 
-// Doctor appointments route
+// Doctor appointments route - Allow both doctors and admins to access
 router.get(
   "/appointments",
   protect,
-  authorize("doctor"),
+  authorize("doctor", "admin"),
   getDoctorAppointments
 );
 
