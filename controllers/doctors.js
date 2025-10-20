@@ -79,7 +79,7 @@ exports.getDoctor = async (req, res, next) => {
 // @access  Public
 exports.getAvailableDoctors = async (req, res, next) => {
     try {
-        const { date, appointmentId } = req.query;
+        const { date, time, specialization, appointmentId } = req.query;
 
         if (!date) {
             return res.status(400).json({
@@ -88,10 +88,34 @@ exports.getAvailableDoctors = async (req, res, next) => {
             });
         }
 
-        const requestedDate = new Date(date);
+        // Build doctor filter query
+        let doctorFilterQuery = { isActive: true };
+        
+        // Filter by specialization if provided
+        if (specialization) {
+            doctorFilterQuery.specialization = specialization;
+        }
+
+        // Find doctors matching the criteria first
+        const matchingDoctors = await Doctor.find(doctorFilterQuery).populate({
+            path: 'user',
+            select: 'firstName lastName email phone'
+        });
+
+        // If no time is specified, return all doctors with the specialization
+        if (!time) {
+            return res.status(200).json({ 
+                success: true, 
+                count: matchingDoctors.length, 
+                data: matchingDoctors 
+            });
+        }
+
+        // Create the exact datetime for conflict checking
+        const requestedDateTime = new Date(`${date}T${time}:00`);
 
         const conflictQuery = {
-            date: requestedDate,
+            date: requestedDateTime,
             status: { $ne: 'cancelled' }
         };
 
@@ -102,15 +126,13 @@ exports.getAvailableDoctors = async (req, res, next) => {
         // Find all appointments at the requested date and time
         const conflictingAppointments = await Appointment.find(conflictQuery).select('doctor');
 
-        const conflictingDoctorIds = conflictingAppointments.map(a => a.doctor.toString());
+        // conflictingAppointments.doctor contains User IDs (as per Appointment model)
+        const conflictingUserIds = conflictingAppointments.map(a => a.doctor.toString());
 
-        // Find all doctors, then filter out those with conflicts
-        const allDoctors = await Doctor.find({ isActive: true }).populate({
-            path: 'user',
-            select: 'firstName lastName email phone'
-        });
-
-        const availableDoctors = allDoctors.filter(doctor => !conflictingDoctorIds.includes(doctor._id.toString()));
+        // Filter out doctors with conflicts by comparing User IDs
+        const availableDoctors = matchingDoctors.filter(doctor => 
+            !conflictingUserIds.includes(doctor.user._id.toString())
+        );
 
         res.status(200).json({ 
             success: true, 
@@ -118,6 +140,7 @@ exports.getAvailableDoctors = async (req, res, next) => {
             data: availableDoctors 
         });
     } catch (error) {
+        console.error('Get available doctors error:', error);
         res.status(400).json({ 
             success: false, 
             error: error.message 

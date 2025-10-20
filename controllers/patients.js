@@ -923,3 +923,72 @@ exports.deletePatientForAdmin = async (req, res, next) => {
         });
     }
 };
+
+// @desc    Get patient dashboard data
+// @route   GET /api/v1/patients/dashboard-data
+// @access  Private (Patient only)
+exports.getPatientDashboard = async (req, res, next) => {
+    try {
+        const patientUserId = req.user.id;
+
+        // Get all appointments for this patient
+        const appointments = await Appointment.find({ patient: patientUserId })
+            .populate({
+                path: 'doctor',
+                select: 'firstName lastName email specialization'
+            })
+            .sort({ date: -1 });
+
+        // Get upcoming appointments (scheduled or confirmed)
+        const upcomingAppointments = appointments.filter(apt => 
+            (apt.status === 'scheduled' || apt.status === 'confirmed') && 
+            new Date(apt.date) > new Date()
+        );
+
+        // Get recent appointments (completed in last 30 days)
+        const thirtyDaysAgo = new Date();
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+        
+        const recentAppointments = appointments.filter(apt => 
+            apt.status === 'completed' && 
+            new Date(apt.date) >= thirtyDaysAgo
+        );
+
+        // Get notifications (simplified for now)
+        const notifications = [
+            {
+                id: 1,
+                type: 'appointment',
+                message: `You have ${upcomingAppointments.length} upcoming appointments`,
+                date: new Date(),
+                read: false
+            }
+        ];
+
+        // Dashboard stats
+        const dashboardData = {
+            totalAppointments: appointments.length,
+            upcomingAppointments: upcomingAppointments.length,
+            completedAppointments: appointments.filter(apt => apt.status === 'completed').length,
+            cancelledAppointments: appointments.filter(apt => apt.status === 'cancelled').length
+        };
+
+        res.status(200).json({
+            success: true,
+            data: {
+                appointments: upcomingAppointments,
+                recentAppointments,
+                notifications,
+                dashboardData,
+                prescriptions: [], // TODO: Implement prescriptions
+                reports: [] // TODO: Implement reports
+            }
+        });
+    } catch (error) {
+        console.error('Error getting patient dashboard:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to get dashboard data'
+        });
+    }
+};

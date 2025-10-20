@@ -1,6 +1,7 @@
 const Nurse = require('../models/Nurse');
 const Patient = require('../models/Patient');
 const MedicalRecord = require('../models/MedicalRecord');
+const Appointment = require('../models/Appointment');
 const Medication = require('../models/Medication');
 const ErrorResponse = require('../utils/errorResponse');
 
@@ -446,6 +447,43 @@ exports.getNurseDashboard = async (req, res, next) => {
         // Get assigned patients count
         const totalPatients = nurse.assignedPatients.length;
 
+        // Today time window
+        const startOfToday = new Date();
+        startOfToday.setHours(0, 0, 0, 0);
+        const endOfToday = new Date();
+        endOfToday.setHours(23, 59, 59, 999);
+
+        // Appointments booked today for assigned patients (scheduled or confirmed)
+        const appointmentsBooked = await Appointment.countDocuments({
+            patient: { $in: nurse.assignedPatients.map(p => p.user ? p.user : p) },
+            date: { $gte: startOfToday, $lte: endOfToday },
+            status: { $in: ['scheduled', 'confirmed'] }
+        });
+
+        // Patients visited today (completed appointments)
+        const patientsVisited = await Appointment.countDocuments({
+            patient: { $in: nurse.assignedPatients.map(p => p.user ? p.user : p) },
+            date: { $gte: startOfToday, $lte: endOfToday },
+            status: 'completed'
+        });
+
+        // Upcoming appointments for assigned patients (next 10)
+        const upcomingAppointments = await Appointment.find({
+            patient: { $in: nurse.assignedPatients.map(p => p.user ? p.user : p) },
+            date: { $gte: new Date() },
+            status: { $in: ['scheduled', 'confirmed'] }
+        })
+        .sort({ date: 1 })
+        .limit(10)
+        .populate({
+            path: 'patient',
+            select: 'firstName lastName email'
+        })
+        .populate({
+            path: 'doctor',
+            select: 'firstName lastName email'
+        });
+
         // Get recent reports uploaded
         const recentReports = await MedicalRecord.find({
             doctor: req.user.id,
@@ -471,6 +509,9 @@ exports.getNurseDashboard = async (req, res, next) => {
             success: true,
             data: {
                 totalPatients,
+                appointmentsBooked,
+                patientsVisited,
+                upcomingAppointments,
                 activeMedications,
                 recentReports,
                 nurseInfo: {
@@ -481,6 +522,351 @@ exports.getNurseDashboard = async (req, res, next) => {
         });
     } catch (error) {
         console.error('Get nurse dashboard error:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Server Error'
+        });
+    }
+};
+
+// @desc    Get appointments for assigned patients (with filters)
+// @route   GET /api/v1/nurse/appointments
+// @access  Private/Nurse
+exports.getAssignedAppointments = async (req, res, next) => {
+    try {
+        const nurse = await Nurse.findOne({ user: req.user.id });
+
+        if (!nurse) {
+            return res.status(404).json({ success: false, error: 'Nurse profile not found' });
+        }
+
+        const { status, startDate, endDate, upcoming } = req.query;
+
+        const filter = {
+            patient: { $in: nurse.assignedPatients.map(p => p.user ? p.user : p) }
+        };
+
+        if (status && status !== 'all') {
+            filter.status = status;
+        }
+
+        // Date range filtering
+        if (startDate || endDate) {
+            filter.date = {};
+            if (startDate) filter.date.$gte = new Date(startDate);
+            if (endDate) filter.date.$lte = new Date(endDate);
+        }
+
+        // Upcoming flag overrides to future scheduled/confirmed
+        if (upcoming === 'true') {
+            filter.date = { ...(filter.date || {}), $gte: new Date() };
+            filter.status = { $in: ['scheduled', 'confirmed'] };
+        }
+
+        const appointments = await Appointment.find(filter)
+            .sort({ date: 1 })
+            .populate({ path: 'patient', select: 'firstName lastName email' })
+            .populate({ path: 'doctor', select: 'firstName lastName email' });
+
+        res.status(200).json({
+            success: true,
+            count: appointments.length,
+            data: appointments
+        });
+    } catch (error) {
+        console.error('Get assigned appointments error:', error);
+        res.status(500).json({ success: false, error: 'Server Error' });
+    }
+};
+
+// @desc    Get nurse dashboard data
+// @route   GET /api/v1/nurse/dashboard-data
+// @access  Private/Nurse
+exports.getNurseDashboard = async (req, res, next) => {
+    try {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const tomorrow = new Date(today);
+        tomorrow.setDate(tomorrow.getDate() + 1);
+
+        // Get all appointments for today
+        const todayAppointments = await Appointment.find({
+            date: {
+                $gte: today,
+                $lt: tomorrow
+            }
+        });
+
+        // Count booked appointments (all appointments today)
+        const appointmentsBooked = todayAppointments.length;
+
+        // Count unique patients who have visited (completed or scheduled appointments today)
+        const patientIds = [...new Set(todayAppointments.map(apt => apt.patient.toString()))];
+        const patientsVisited = patientIds.length;
+
+        // Get upcoming appointments (future appointments, sorted by date)
+        const upcomingAppointments = await Appointment.find({
+            date: { $gte: new Date() },
+            status: { $in: ['scheduled', 'confirmed'] }
+        })
+        .sort({ date: 1 })
+        .limit(10)
+        .populate({
+            path: 'patient',
+            select: 'firstName lastName email phone profilePicture'
+        })
+        .populate({
+            path: 'doctor',
+            select: 'firstName lastName email profilePicture'
+        });
+
+        // Get total patients count
+        const totalPatients = await Patient.countDocuments();
+
+        // Get pending medical records count
+        const pendingReports = await MedicalRecord.countDocuments({
+            status: 'new'
+        });
+
+        res.status(200).json({
+            success: true,
+            data: {
+                stats: {
+                    appointmentsBooked,
+                    patientsVisited,
+                    totalPatients,
+                    pendingReports
+                },
+                upcomingAppointments,
+                todayAppointments: todayAppointments.length
+            }
+        });
+    } catch (error) {
+        console.error('Get nurse dashboard error:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Server Error'
+        });
+    }
+};
+
+// @desc    Get all appointments for nurse with detailed info
+// @route   GET /api/v1/nurse/appointments/all
+// @access  Private/Nurse
+exports.getAllAppointments = async (req, res, next) => {
+    try {
+        const { status, date, search } = req.query;
+        
+        let filter = {};
+        
+        // Filter by status if provided
+        if (status) {
+            filter.status = status;
+        }
+        
+        // Filter by date if provided
+        if (date) {
+            const searchDate = new Date(date);
+            const nextDay = new Date(searchDate);
+            nextDay.setDate(nextDay.getDate() + 1);
+            filter.date = {
+                $gte: searchDate,
+                $lt: nextDay
+            };
+        }
+
+        const appointments = await Appointment.find(filter)
+            .sort({ date: -1 })
+            .populate({
+                path: 'patient',
+                select: 'firstName lastName email phone profilePicture'
+            })
+            .populate({
+                path: 'doctor',
+                select: 'firstName lastName email profilePicture'
+            });
+
+        // Search functionality if search term provided
+        let filteredAppointments = appointments;
+        if (search) {
+            const searchLower = search.toLowerCase();
+            filteredAppointments = appointments.filter(apt => {
+                const patientName = `${apt.patient?.firstName || ''} ${apt.patient?.lastName || ''}`.toLowerCase();
+                const doctorName = `${apt.doctor?.firstName || ''} ${apt.doctor?.lastName || ''}`.toLowerCase();
+                const reason = (apt.reason || '').toLowerCase();
+                
+                return patientName.includes(searchLower) || 
+                       doctorName.includes(searchLower) || 
+                       reason.includes(searchLower);
+            });
+        }
+
+        res.status(200).json({
+            success: true,
+            count: filteredAppointments.length,
+            data: filteredAppointments
+        });
+    } catch (error) {
+        console.error('Get all appointments error:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Server Error'
+        });
+    }
+};
+
+// @desc    Get all patients for nurse
+// @route   GET /api/v1/nurse/patients/all
+// @access  Private/Nurse
+exports.getAllPatients = async (req, res, next) => {
+    try {
+        const { search } = req.query;
+        
+        // Get all patients with user information
+        const patients = await Patient.find()
+            .populate({
+                path: 'user',
+                select: 'firstName lastName email phone profilePicture'
+            })
+            .sort({ createdAt: -1 });
+
+        // Search functionality if search term provided
+        let filteredPatients = patients;
+        if (search) {
+            const searchLower = search.toLowerCase();
+            filteredPatients = patients.filter(patient => {
+                const fullName = `${patient.user?.firstName || ''} ${patient.user?.lastName || ''}`.toLowerCase();
+                const email = (patient.user?.email || '').toLowerCase();
+                const patientId = (patient.patientId || '').toLowerCase();
+                
+                return fullName.includes(searchLower) || 
+                       email.includes(searchLower) || 
+                       patientId.includes(searchLower);
+            });
+        }
+
+        res.status(200).json({
+            success: true,
+            count: filteredPatients.length,
+            data: filteredPatients
+        });
+    } catch (error) {
+        console.error('Get all patients error:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Server Error'
+        });
+    }
+};
+
+// @desc    Add medical report for consultant
+// @route   POST /api/v1/nurse/reports
+// @access  Private/Nurse
+exports.addMedicalReport = async (req, res, next) => {
+    try {
+        const { patient, doctor, title, recordType, description, notes, fileUrl } = req.body;
+
+        // Validate required fields
+        if (!patient || !doctor || !title || !recordType) {
+            return res.status(400).json({
+                success: false,
+                error: 'Please provide patient, doctor, title, and recordType'
+            });
+        }
+
+        // Verify patient exists
+        const patientExists = await Patient.findById(patient);
+        if (!patientExists) {
+            return res.status(404).json({
+                success: false,
+                error: 'Patient not found'
+            });
+        }
+
+        // Verify doctor exists (doctor is a User ID)
+        const User = require('../models/User');
+        const doctorExists = await User.findOne({ _id: doctor, role: 'doctor' });
+        if (!doctorExists) {
+            return res.status(404).json({
+                success: false,
+                error: 'Doctor not found'
+            });
+        }
+
+        // Create medical record
+        const medicalRecord = await MedicalRecord.create({
+            patient,
+            doctor,
+            title,
+            recordType,
+            description: description || '',
+            notes: notes || '',
+            fileUrl: fileUrl || '',
+            status: 'new',
+            date: new Date()
+        });
+
+        // Populate the created record
+        const populatedRecord = await MedicalRecord.findById(medicalRecord._id)
+            .populate({
+                path: 'patient',
+                populate: {
+                    path: 'user',
+                    select: 'firstName lastName email'
+                }
+            })
+            .populate({
+                path: 'doctor',
+                select: 'firstName lastName email'
+            });
+
+        res.status(201).json({
+            success: true,
+            data: populatedRecord
+        });
+    } catch (error) {
+        console.error('Add medical report error:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Server Error'
+        });
+    }
+};
+
+// @desc    Get medical reports
+// @route   GET /api/v1/nurse/reports
+// @access  Private/Nurse
+exports.getMedicalReports = async (req, res, next) => {
+    try {
+        const { patient, status, recordType } = req.query;
+        
+        let filter = {};
+        
+        if (patient) filter.patient = patient;
+        if (status) filter.status = status;
+        if (recordType) filter.recordType = recordType;
+
+        const reports = await MedicalRecord.find(filter)
+            .sort({ createdAt: -1 })
+            .populate({
+                path: 'patient',
+                populate: {
+                    path: 'user',
+                    select: 'firstName lastName email'
+                }
+            })
+            .populate({
+                path: 'doctor',
+                select: 'firstName lastName email'
+            });
+
+        res.status(200).json({
+            success: true,
+            count: reports.length,
+            data: reports
+        });
+    } catch (error) {
+        console.error('Get medical reports error:', error);
         res.status(500).json({
             success: false,
             error: 'Server Error'

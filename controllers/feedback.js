@@ -270,7 +270,7 @@ exports.getMyFeedback = async (req, res, next) => {
             })
             .populate({
                 path: 'appointment',
-                select: 'date reason status'
+                select: 'date reason status notes'
             })
             .sort('-createdAt');
 
@@ -431,7 +431,7 @@ exports.getAppointmentsForFeedback = async (req, res, next) => {
         })
         .populate({
             path: 'doctor',
-            select: 'firstName lastName specialty'
+            select: 'firstName lastName email specialization profilePicture'
         })
         .sort('-date');
 
@@ -450,6 +450,7 @@ exports.getAppointmentsForFeedback = async (req, res, next) => {
             data: appointmentsWithoutFeedback
         });
     } catch (error) {
+        console.error('Error getting appointments for feedback:', error);
         res.status(500).json({
             success: false,
             error: 'Server Error'

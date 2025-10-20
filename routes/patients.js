@@ -37,7 +37,7 @@ router
   .put(protect, authorize('patient'), updateNotificationPreferences);
 
 router
-  .route('/dashboard')
+  .route('/dashboard-data')
   .get(protect, authorize('patient'), getPatientDashboard);
 
 // Admin routes (no authentication required) - MUST come before /:id routes

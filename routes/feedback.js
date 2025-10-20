@@ -7,6 +7,7 @@ const {
   deleteFeedback,
   getPatientFeedbackHistory,
   getAppointmentsForFeedback,
+  getMyFeedback
 } = require('../controllers/feedback');
 
 const router = express.Router();
@@ -17,6 +18,10 @@ router
   .route('/')
   .get(protect, getFeedbacks)
   .post(protect, createFeedback);
+
+router
+  .route('/me')
+  .get(protect, getMyFeedback);
 
 router
   .route('/patient/history')

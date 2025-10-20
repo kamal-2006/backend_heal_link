@@ -331,6 +331,12 @@ exports.bookAppointment = async (req, res, next) => {
         });
       }
 
+      console.log('🔍 DEBUG: Found doctor:', {
+        doctorId: doctor._id,
+        userId: doctor.user._id,
+        name: `${doctor.user.firstName} ${doctor.user.lastName}`
+      });
+
       // Validate and normalize date
       const appointmentDate = new Date(req.body.date);
       if (isNaN(appointmentDate.getTime())) {
@@ -346,6 +352,9 @@ exports.bookAppointment = async (req, res, next) => {
         date: appointmentDate,
         status: { $ne: "cancelled" }, // Not cancelled
       });
+
+      console.log('🔍 DEBUG: Checking for conflicts at:', appointmentDate);
+      console.log('🔍 DEBUG: Existing appointment found:', !!existingAppointment);
 
       if (existingAppointment) {
         return res.status(400).json({
@@ -720,6 +729,128 @@ exports.confirmAppointment = async (req, res, next) => {
     res.status(400).json({
       success: false,
       error: error.message,
+    });
+  }
+};
+
+// @desc    Get appointments that need feedback for the current patient
+// @route   GET /api/v1/appointments/needFeedback
+// @access  Private (Patient only)
+exports.getAppointmentsNeedingFeedback = async (req, res, next) => {
+  try {
+    const patientUserId = req.user.id;
+    
+    // Find completed appointments where the patient hasn't given feedback yet
+    // We need to check if there's already feedback for this appointment
+    const Feedback = require('../models/Feedback');
+    
+    // Get appointments for this patient that could potentially need feedback
+    // This includes scheduled/confirmed appointments that are in the past
+    const pastAppointments = await Appointment.find({
+      patient: patientUserId,
+      status: { $in: ['scheduled', 'confirmed', 'completed'] },
+      date: { $lt: new Date() } // Only past appointments
+    })
+    .populate({
+      path: 'doctor',
+      select: 'firstName lastName'
+    })
+    .sort({ date: -1 });
+
+    // Get doctor profiles for the appointments to get specialization
+    const doctorUserIds = pastAppointments.map(apt => apt.doctor._id);
+    const doctorProfiles = await Doctor.find({
+      user: { $in: doctorUserIds }
+    }).populate('user', 'firstName lastName');
+
+    // Create a map of user ID to doctor profile
+    const doctorProfileMap = {};
+    doctorProfiles.forEach(profile => {
+      doctorProfileMap[profile.user._id.toString()] = profile;
+    });
+
+    // Get all feedback IDs that this patient has already submitted
+    const existingFeedback = await Feedback.find({
+      patient: patientUserId
+    }).select('appointment');
+    
+    const feedbackAppointmentIds = existingFeedback.map(fb => fb.appointment.toString());
+    
+    // Filter out appointments that already have feedback
+    const appointmentsNeedingFeedback = pastAppointments.filter(appointment => 
+      !feedbackAppointmentIds.includes(appointment._id.toString())
+    );
+
+    // Transform the data to include doctor information properly
+    const transformedAppointments = appointmentsNeedingFeedback.map(appointment => {
+      const doctorProfile = doctorProfileMap[appointment.doctor._id.toString()];
+      
+      return {
+        id: appointment._id,
+        _id: appointment._id,
+        date: appointment.date,
+        reason: appointment.reason,
+        notes: appointment.notes,
+        status: 'completed', // Mark as completed since it's in the past
+        doctor: appointment.doctor,
+        doctorName: appointment.doctor ? 
+          `Dr. ${appointment.doctor.firstName} ${appointment.doctor.lastName}` 
+          : 'Unknown Doctor',
+        specialty: doctorProfile?.specialization || 'General Medicine'
+      };
+    });
+
+    res.status(200).json({
+      success: true,
+      count: transformedAppointments.length,
+      data: transformedAppointments
+    });
+  } catch (error) {
+    console.error('Error getting appointments needing feedback:', error);
+    res.status(400).json({
+      success: false,
+      error: error.message
+    });
+  }
+};
+
+// @desc    Mark appointment as completed
+// @route   PUT /api/v1/appointments/:id/complete
+// @access  Private (Doctor, Admin)
+exports.markAppointmentCompleted = async (req, res, next) => {
+  try {
+    let appointment = await Appointment.findById(req.params.id);
+
+    if (!appointment) {
+      return res.status(404).json({
+        success: false,
+        error: 'Appointment not found'
+      });
+    }
+
+    // Update appointment status to completed
+    appointment = await Appointment.findByIdAndUpdate(
+      req.params.id,
+      { status: 'completed' },
+      { new: true, runValidators: true }
+    )
+    .populate({
+      path: 'doctor',
+      select: 'firstName lastName'
+    })
+    .populate({
+      path: 'patient',
+      select: 'firstName lastName'
+    });
+
+    res.status(200).json({
+      success: true,
+      data: appointment
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      error: error.message
     });
   }
 };
