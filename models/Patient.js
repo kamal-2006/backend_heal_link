@@ -5,6 +5,7 @@ const PatientSchema = new mongoose.Schema({
     type: mongoose.Schema.ObjectId,
     ref: 'User',
     required: true,
+    index: true
   },
   patientId: {
     type: String,

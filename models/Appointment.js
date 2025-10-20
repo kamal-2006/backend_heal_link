@@ -5,15 +5,18 @@ const AppointmentSchema = new mongoose.Schema({
     type: mongoose.Schema.ObjectId,
     ref: 'User',
     required: true,
+    index: true
   },
   patient: {
     type: mongoose.Schema.ObjectId,
     ref: 'User',
     required: true,
+    index: true
   },
   date: {
     type: Date,
     required: true,
+    index: true
   },
   reason: {
     type: String,
@@ -31,6 +34,7 @@ const AppointmentSchema = new mongoose.Schema({
       'rescheduled',
     ],
     default: 'scheduled',
+    index: true
   },
   isRescheduled: {
     type: Boolean,

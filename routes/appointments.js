@@ -10,8 +10,7 @@ const {
   getDoctorAvailability,
   updateExpiredAppointments,
   confirmAppointment,
-  getAppointmentsNeedingFeedback,
-  markAppointmentCompleted
+  bulkSwapAppointments
 } = require('../controllers/appointments');
 
 const router = express.Router();
@@ -60,5 +59,9 @@ router
 router
   .route('/doctors/:id/availability')
   .get(protect, getDoctorAvailability);
+
+router
+  .route('/bulk-swap')
+  .post(protect, authorize('doctor', 'admin'), bulkSwapAppointments);
 
 module.exports = router;

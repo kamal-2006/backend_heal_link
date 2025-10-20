@@ -924,71 +924,41 @@ exports.deletePatientForAdmin = async (req, res, next) => {
     }
 };
 
-// @desc    Get patient dashboard data
-// @route   GET /api/v1/patients/dashboard-data
-// @access  Private (Patient only)
-exports.getPatientDashboard = async (req, res, next) => {
+exports.getPatientDashboardData = async (req, res, next) => {
     try {
-        const patientUserId = req.user.id;
+        const patient = await Patient.findOne({ user: req.user.id });
 
-        // Get all appointments for this patient
-        const appointments = await Appointment.find({ patient: patientUserId })
-            .populate({
-                path: 'doctor',
-                select: 'firstName lastName email specialization'
-            })
-            .sort({ date: -1 });
+        if (!patient) {
+            return res.status(404).json({
+                success: false,
+                error: 'Patient not found'
+            });
+        }
 
-        // Get upcoming appointments (scheduled or confirmed)
-        const upcomingAppointments = appointments.filter(apt => 
-            (apt.status === 'scheduled' || apt.status === 'confirmed') && 
-            new Date(apt.date) > new Date()
-        );
-
-        // Get recent appointments (completed in last 30 days)
-        const thirtyDaysAgo = new Date();
-        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-        
-        const recentAppointments = appointments.filter(apt => 
-            apt.status === 'completed' && 
-            new Date(apt.date) >= thirtyDaysAgo
-        );
-
-        // Get notifications (simplified for now)
-        const notifications = [
-            {
-                id: 1,
-                type: 'appointment',
-                message: `You have ${upcomingAppointments.length} upcoming appointments`,
-                date: new Date(),
-                read: false
-            }
-        ];
-
-        // Dashboard stats
-        const dashboardData = {
-            totalAppointments: appointments.length,
-            upcomingAppointments: upcomingAppointments.length,
-            completedAppointments: appointments.filter(apt => apt.status === 'completed').length,
-            cancelledAppointments: appointments.filter(apt => apt.status === 'cancelled').length
-        };
+        const [appointments, medications, notifications, reports] = await Promise.all([
+            Appointment.find({ patient: patient._id }).populate('doctor', 'firstName lastName'),
+            // Assuming you have a Medication model
+            // Medication.find({ patient: patient._id, status: 'active' }),
+            // Assuming you have a Notification model
+            // Notification.find({ user: req.user.id, read: false }),
+            // Assuming you have a MedicalRecord model
+            // MedicalRecord.find({ patient: patient._id })
+        ]);
 
         res.status(200).json({
             success: true,
             data: {
-                appointments: upcomingAppointments,
-                recentAppointments,
+                appointments,
+                prescriptions: medications,
                 notifications,
-                dashboardData,
-                prescriptions: [], // TODO: Implement prescriptions
-                reports: [] // TODO: Implement reports
+                reports
             }
         });
     } catch (error) {
-        console.error('Error getting patient dashboard:', error);
+        console.error('Error fetching patient dashboard data:', error);
         res.status(500).json({
             success: false,
-            error: 'Failed to get dashboard data'
+            error: 'Server Error'
         });
     }
 };
