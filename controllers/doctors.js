@@ -82,66 +82,69 @@ exports.getDoctor = async (req, res, next) => {
 // @access  Public
 exports.getAvailableDoctors = async (req, res, next) => {
     try {
-        const { date, time, specialization, appointmentId } = req.query;
-
-        if (!date) {
-            return res.status(400).json({
-                success: false,
-                error: "Please provide a date to check for availability."
-            });
-        }
-
-        // Build doctor filter query
-        let doctorFilterQuery = { isActive: true };
+                const { date, startTime, endTime, specialization, appointmentId } = req.query;
         
-        // Filter by specialization if provided
-        if (specialization) {
-            doctorFilterQuery.specialization = specialization;
-        }
-
-        // Find doctors matching the criteria first
-        const matchingDoctors = await Doctor.find(doctorFilterQuery).populate({
-            path: 'user',
-            select: 'firstName lastName email phone'
-        });
-
-        // If no time is specified, return all doctors with the specialization
-        if (!time) {
-            return res.status(200).json({ 
-                success: true, 
-                count: matchingDoctors.length, 
-                data: matchingDoctors 
-            });
-        }
-
-        // Create the exact datetime for conflict checking
-        const requestedDateTime = new Date(`${date}T${time}:00`);
-
-        const conflictQuery = {
-            date: requestedDateTime,
-            status: { $ne: 'cancelled' }
-        };
-
-        if (appointmentId) {
-            conflictQuery._id = { $ne: appointmentId };
-        }
-
-        // Find all appointments at the requested date and time
-        const conflictingAppointments = await Appointment.find(conflictQuery).select('doctor');
-
-        // conflictingAppointments.doctor contains User IDs (as per Appointment model)
-        const conflictingUserIds = conflictingAppointments.map(a => a.doctor.toString());
-
-        // Find all doctors, then filter out those with conflicts
-        const allDoctors = await Doctor.find({ isActive: true })
-        .populate({
-            path: 'user',
-            select: 'firstName lastName email phone'
-        })
-        .select('specialization user rating consultationFee');
-
-        const availableDoctors = allDoctors.filter(doctor => !conflictingDoctorIds.includes(doctor._id.toString()));
-
+                if (!date) {
+                    return res.status(400).json({
+                        success: false,
+                        error: "Please provide a date to check for availability."
+                    });
+                }
+        
+                // Build doctor filter query
+                let doctorFilterQuery = { isActive: true };
+        
+                // Filter by specialization if provided
+                if (specialization) {
+                    doctorFilterQuery.specialization = specialization;
+                }
+        
+                // Find doctors matching the criteria first
+                const matchingDoctors = await Doctor.find(doctorFilterQuery).populate({
+                    path: 'user',
+                    select: 'firstName lastName email phone'
+                });
+        
+                // If no startTime or endTime is specified, return all doctors with the specialization
+                if (!startTime || !endTime) {
+                    return res.status(200).json({
+                        success: true,
+                        count: matchingDoctors.length,
+                        data: matchingDoctors
+                    });
+                }
+        
+                // Create the start and end datetimes for conflict checking
+                const requestedStartDateTime = new Date(`${date}T${startTime}:00`);
+                const requestedEndDateTime = new Date(`${date}T${endTime}:00`);
+        
+                const conflictQuery = {
+                    date: {
+                        $gte: requestedStartDateTime,
+                        $lt: requestedEndDateTime
+                    },
+                    status: { $ne: 'cancelled' }
+                };
+        
+                if (appointmentId) {
+                    conflictQuery._id = { $ne: appointmentId };
+                }
+        
+                // Find all appointments that conflict with the requested time range
+                const conflictingAppointments = await Appointment.find(conflictQuery).select('doctor date');
+        
+                // conflictingAppointments.doctor contains User IDs (as per Appointment model)
+                const conflictingUserIds = conflictingAppointments.map(a => a.doctor.toString());
+        
+                // Find all doctors, then filter out those with conflicts
+                const allDoctors = await Doctor.find({ isActive: true })
+                .populate({
+                    path: 'user',
+                    select: 'firstName lastName email phone'
+                })
+                .select('specialization user rating consultationFee');
+        
+                const availableDoctors = allDoctors.filter(doctor => !conflictingUserIds.includes(doctor.user._id.toString()));
         res.status(200).json({ 
             success: true, 
             count: availableDoctors.length, 

@@ -2,46 +2,7 @@ const Appointment = require("../models/Appointment");
 const User = require("../models/User");
 const Doctor = require("../models/Doctor");
 const Patient = require("../models/Patient");
-const { bulkSwapAppointments } = require("./bulkSwap");
-
-// Export the bulkSwapAppointments function
-exports.bulkSwapAppointments = bulkSwapAppointments;
-
-// Helper function to update doctor availability based on appointments
-const updateDoctorAvailability = async (doctorId) => {
-  try {
-    // Get all confirmed and scheduled appointments for this doctor
-    const appointments = await Appointment.find({
-      doctor: doctorId,
-      status: { $in: ["confirmed", "scheduled"] },
-    }).sort({ date: 1 });
-
-    // Generate timeSlots from appointments
-    const timeSlots = appointments.map((appointment) => {
-      const appointmentDate = new Date(appointment.date);
-      const startTime = appointmentDate.toTimeString().slice(0, 5); // HH:MM format
-      const endTime = new Date(appointmentDate.getTime() + 30 * 60000)
-        .toTimeString()
-        .slice(0, 5); // Add 30 minutes
-
-      return {
-        startTime,
-        endTime,
-        date: appointmentDate.toISOString().split("T")[0], // YYYY-MM-DD format
-        appointmentId: appointment._id,
-      };
-    });
-
-    // Update doctor availability
-    await Doctor.findByIdAndUpdate(doctorId, {
-      $set: {
-        "availability.timeSlots": timeSlots,
-      },
-    });
-  } catch (error) {
-    console.error("Error updating doctor availability:", error);
-  }
-};
+const { updateDoctorAvailability } = require("../utils/doctorUtils");
 
 // @desc    Get all appointments
 // @route   GET /api/v1/appointments
@@ -254,15 +215,6 @@ exports.bookAppointment = async (req, res, next) => {
         return res.status(400).json({
           success: false,
           error: "Invalid appointment date",
-        });
-      }
-      
-      // Prevent booking appointments before current time
-      const now = new Date();
-      if (appointmentDate < now) {
-        return res.status(400).json({
-          success: false,
-          error: "Cannot book appointments in the past",
         });
       }
       
@@ -489,24 +441,40 @@ exports.updateAppointment = async (req, res, next) => {
       });
     }
 
-    // If changing date/time, check for conflicts
-    if (req.body.date && req.body.date !== appointment.date.toISOString()) {
+    const updatePayload = { ...req.body };
+    let doctorUserIdForCheck = appointment.doctor;
+
+    // If a new doctor ID is provided, it's a Doctor document ID. We need to get the User ID.
+    if (req.body.doctor) {
+      const doctorDoc = await Doctor.findById(req.body.doctor);
+      if (!doctorDoc) {
+        return res.status(404).json({ success: false, error: "Selected doctor not found" });
+      }
+      // Set the payload to use the doctor's User ID, which is what's stored in the Appointment model
+      updatePayload.doctor = doctorDoc.user;
+      doctorUserIdForCheck = doctorDoc.user;
+    }
+
+    // If changing date or doctor, check for conflicts
+    if (req.body.date || req.body.doctor) {
+      const dateForCheck = req.body.date ? new Date(req.body.date) : appointment.date;
+      
       const existingAppointment = await Appointment.findOne({
-        doctor: appointment.doctor,
-        date: new Date(req.body.date),
-        _id: { $ne: req.params.id }, // Not this appointment
-        status: { $ne: "cancelled" }, // Not cancelled
+        doctor: doctorUserIdForCheck,
+        date: dateForCheck,
+        _id: { $ne: req.params.id },
+        status: { $in: ["scheduled", "confirmed"] },
       });
 
       if (existingAppointment) {
         return res.status(400).json({
           success: false,
-          error: "Doctor is not available at this time",
+          error: "The selected doctor is not available at this time.",
         });
       }
     }
 
-    appointment = await Appointment.findByIdAndUpdate(req.params.id, req.body, {
+    appointment = await Appointment.findByIdAndUpdate(req.params.id, updatePayload, {
       new: true,
       runValidators: true,
     })
@@ -519,14 +487,14 @@ exports.updateAppointment = async (req, res, next) => {
         select: "firstName lastName email phone",
       });
 
-    // Update doctor availability with new appointment time
+    // Update doctor availability
     try {
       const doctorDoc = await Doctor.findOne({ user: appointment.doctor._id });
       if (doctorDoc) {
         await updateDoctorAvailability(doctorDoc._id);
       }
     } catch (availabilityError) {
-
+      console.error("Failed to update doctor availability:", availabilityError);
     }
 
     res.status(200).json({

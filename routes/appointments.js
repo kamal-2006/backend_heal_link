@@ -10,8 +10,11 @@ const {
   getDoctorAvailability,
   updateExpiredAppointments,
   confirmAppointment,
-  bulkSwapAppointments
+  getAppointmentsNeedingFeedback,
+  markAppointmentCompleted
 } = require('../controllers/appointments');
+
+const { bulkSwapAppointments } = require('../controllers/bulkSwap');
 
 const router = express.Router();
 
