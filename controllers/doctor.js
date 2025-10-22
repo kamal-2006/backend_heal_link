@@ -1,5 +1,7 @@
 const Doctor = require('../models/Doctor');
 const User = require('../models/User');
+const Patient = require('../models/Patient'); // Added
+const Feedback = require('../models/Feedback'); // Added
 const Appointment = require('../models/Appointment');
 const asyncHandler = require('../middleware/async');
 const ErrorResponse = require('../utils/errorResponse');
@@ -143,5 +145,78 @@ exports.getDoctorAppointments = asyncHandler(async (req, res, next) => {
     success: true,
     count: appointments.length,
     data: appointments,
+  });
+});
+
+// @desc    Get doctor dashboard data
+// @route   GET /api/v1/doctor/dashboard-data
+// @access  Private (Doctors only)
+exports.getDoctorDashboardData = asyncHandler(async (req, res, next) => {
+  const doctorId = req.user.id; // User ID of the logged-in doctor
+
+  // Get today's date for filtering appointments
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const tomorrow = new Date(today);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+
+  // 1. Appointments Today
+  const appointmentsToday = await Appointment.countDocuments({
+    doctor: doctorId,
+    date: { $gte: today, $lt: tomorrow },
+    status: { $in: ['scheduled', 'confirmed'] },
+  });
+
+  // 2. Total Patients
+  const totalPatients = await Patient.countDocuments({
+    primaryDoctor: doctorId,
+  });
+
+  // 3. Pending Reviews (Feedback)
+  const pendingReviews = await Feedback.countDocuments({
+    doctor: doctorId,
+    read: false,
+  });
+
+  // 4. Upcoming Appointments (for display in frontend)
+  const upcomingAppointments = await Appointment.find({
+    doctor: doctorId,
+    date: { $gte: new Date() }, // Appointments from now onwards
+    status: { $in: ['scheduled', 'confirmed'] },
+  })
+    .populate({
+      path: 'patient',
+      select: 'firstName lastName',
+      populate: {
+        path: 'patientInfo',
+        select: 'patientId'
+      }
+    })
+    .sort('date')
+    .limit(4); // Limit to 4 upcoming appointments for the dashboard
+
+  res.status(200).json({
+    success: true,
+    data: {
+      appointmentsToday,
+      totalPatients,
+      pendingReviews,
+          upcomingAppointments: upcomingAppointments.map(apt => {
+            const patientName = apt.patient ? `${apt.patient.firstName} ${apt.patient.lastName}` : 'N/A';
+            const patientId = apt.patient && apt.patient.patientInfo ? apt.patient.patientInfo.patientId : 'N/A';
+            return {
+              _id: apt._id,
+              patient: {
+                firstName: apt.patient ? apt.patient.firstName : 'N/A',
+                lastName: apt.patient ? apt.patient.lastName : 'N/A',
+                patientInfo: {
+                  patientId: patientId
+                }
+              },
+              date: apt.date,
+              reason: apt.reason,
+              status: apt.status,
+            }
+          }),    },
   });
 });

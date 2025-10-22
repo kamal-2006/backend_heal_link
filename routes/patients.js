@@ -15,7 +15,9 @@ const {
   getPatientDetailsForAdmin,
   updatePatientForAdmin,
   deletePatientForAdmin,
-  getPatientDashboardData
+  getPatientDashboardData,
+  transferPatient,
+  bulkTransferPatients
 } = require('../controllers/patients');
 
 const router = express.Router();
@@ -72,5 +74,9 @@ router
   .get(protect, getPatient)
   .put(protect, updatePatient)
   .delete(protect, deletePatient);
+
+router
+  .route('/:id/transfer')
+  .put(protect, authorize('admin', 'doctor'), transferPatient);
 
 module.exports = router;

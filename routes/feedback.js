@@ -7,7 +7,9 @@ const {
   deleteFeedback,
   getPatientFeedbackHistory,
   getAppointmentsForFeedback,
-  getMyFeedback
+  getMyFeedback,
+  getDoctorFeedback,
+  updateFeedbackReadStatus
 } = require('../controllers/feedback');
 
 const router = express.Router();
@@ -36,5 +38,13 @@ router
   .get(protect, getFeedback)
   .put(protect, updateFeedback)
   .delete(protect, deleteFeedback);
+
+router
+  .route('/doctor/me')
+  .get(protect, getDoctorFeedback);
+
+router
+  .route('/:id/read')
+  .put(protect, updateFeedbackReadStatus);
 
 module.exports = router;

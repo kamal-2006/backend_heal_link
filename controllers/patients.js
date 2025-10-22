@@ -924,6 +924,67 @@ exports.deletePatientForAdmin = async (req, res, next) => {
     }
 };
 
+// @desc    Permanently transfer a patient to another doctor
+// @route   PUT /api/v1/patients/:id/transfer
+// @access  Private (Admin or current primary doctor)
+exports.transferPatient = async (req, res, next) => {
+    try {
+        const { newDoctorId } = req.body;
+
+        if (!newDoctorId) {
+            return res.status(400).json({
+                success: false,
+                error: 'Please provide the new doctor\'s ID'
+            });
+        }
+
+        const patient = await Patient.findById(req.params.id);
+
+        if (!patient) {
+            return res.status(404).json({
+                success: false,
+                error: 'Patient not found'
+            });
+        }
+
+        // Authorization: Allow admin or the patient\'s current primary doctor to transfer
+        if (
+            req.user.role !== 'admin' &&
+            (!patient.primaryDoctor || patient.primaryDoctor.toString() !== req.user.id)
+        ) {
+            return res.status(401).json({
+                success: false,
+                error: 'Not authorized to transfer this patient'
+            });
+        }
+
+        // Check if the new doctor exists and is a doctor
+        const newDoctor = await User.findOne({ _id: newDoctorId, role: 'doctor' });
+
+        if (!newDoctor) {
+            return res.status(404).json({
+                success: false,
+                error: 'New doctor not found or is not a doctor'
+            });
+        }
+
+        // Update the patient\'s primary doctor
+        patient.primaryDoctor = newDoctor._id;
+        await patient.save();
+
+        res.status(200).json({
+            success: true,
+            data: patient
+        });
+    } catch (error) {
+        res.status(400).json({
+            success: false,
+            error: error.message
+        });
+    }
+};
+
+
 exports.getPatientDashboardData = async (req, res, next) => {
     try {
         const patient = await Patient.findOne({ user: req.user.id });

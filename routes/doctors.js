@@ -9,7 +9,8 @@ const {
     deleteDoctor,
     getDoctorProfile,
     updateDoctorProfile,
-    getDoctorDashboardData
+    getDoctorDashboardData,
+    getPatientsByDoctor
 } = require('../controllers/doctors');
 
 const { protect, authorize } = require('../middleware/auth');
@@ -22,6 +23,8 @@ const router = express.Router();
 router.get('/', getDoctors);
 router.get('/available', getAvailableDoctors);
 router.get('/specialization/:specialization', getDoctorsBySpecialization);
+
+router.get('/patients', protect, authorize('doctor'), getPatientsByDoctor);
 
 // Doctor profile routes
 router.route('/me').get(protect, authorize('doctor'), getDoctorProfile);

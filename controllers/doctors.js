@@ -1,6 +1,7 @@
 const Doctor = require('../models/Doctor');
 const User = require('../models/User');
 const Appointment = require('../models/Appointment');
+const Patient = require('../models/Patient');
 
 // @desc    Get all doctors
 // @route   GET /api/v1/doctors
@@ -521,6 +522,58 @@ exports.getDoctorDashboardData = async (req, res, next) => {
         res.status(500).json({
             success: false,
             error: 'Server Error'
+        });
+    }
+};
+
+// @desc    Get all patients for a specific doctor
+// @route   GET /api/v1/doctors/patients
+// @access  Private (Doctor only)
+exports.getPatientsByDoctor = async (req, res, next) => {
+    try {
+        // Find all appointments for the current doctor
+        const appointments = await Appointment.find({ doctor: req.user.id }).sort({ date: -1 });
+
+        // Get a unique list of patient IDs from the appointments
+        const patientUserIds = [...new Set(appointments.map(appointment => appointment.patient.toString()))];
+
+        // Find all patients with the collected IDs
+        const patients = await Patient.find({ user: { $in: patientUserIds } })
+            .populate({
+                path: 'user',
+                select: 'firstName lastName email phone profilePicture'
+            })
+            .populate('medicalRecords')
+            .populate('medications');
+
+        // Create a map of patients for easy lookup
+        const patientMap = new Map(patients.map(p => [p.user._id.toString(), p.toObject()]));
+
+        // Add last and next appointment to each patient
+        for (const appointment of appointments) {
+            const patientId = appointment.patient.toString();
+            if (patientMap.has(patientId)) {
+                const patient = patientMap.get(patientId);
+                if (!patient.lastAppointment && appointment.date < new Date()) {
+                    patient.lastAppointment = appointment.date;
+                }
+                if (!patient.nextAppointment && appointment.date >= new Date()) {
+                    patient.nextAppointment = appointment.date;
+                }
+            }
+        }
+
+        const patientsWithDetails = Array.from(patientMap.values());
+
+        res.status(200).json({ 
+            success: true, 
+            count: patientsWithDetails.length, 
+            data: patientsWithDetails 
+        });
+    } catch (error) {
+        res.status(400).json({ 
+            success: false, 
+            error: error.message 
         });
     }
 };

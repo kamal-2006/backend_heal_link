@@ -236,7 +236,7 @@ exports.getPatientFeedback = async (req, res, next) => {
 // @desc    Get doctor's feedback
 exports.getDoctorFeedback = async (req, res, next) => {
     try {
-        const feedback = await Feedback.find({ doctor: req.params.doctorId })
+        const feedback = await Feedback.find({ doctor: req.user.id })
             .populate({
                 path: 'patient',
                 select: 'firstName lastName profilePicture'
@@ -386,6 +386,44 @@ exports.deleteMyFeedback = async (req, res, next) => {
         res.status(500).json({
             success: false,
             error: 'Server Error'
+        });
+    }
+};
+
+// @desc    Update feedback read status
+// @route   PUT /api/v1/feedback/:id/read
+// @access  Private (Admin, Doctor)
+exports.updateFeedbackReadStatus = async (req, res, next) => {
+    try {
+        let feedback = await Feedback.findById(req.params.id);
+
+        if (!feedback) {
+            return res.status(404).json({
+                success: false,
+                error: 'Feedback not found'
+            });
+        }
+
+        // Only allow admin or the doctor who received the feedback to mark as read
+        if (req.user.role !== 'admin' && feedback.doctor.toString() !== req.user.id) {
+            return res.status(401).json({
+                success: false,
+                error: 'Not authorized to update this feedback'
+            });
+        }
+
+        feedback.read = req.body.read;
+        await feedback.save();
+
+        res.status(200).json({
+            success: true,
+            data: feedback
+        });
+    } catch (error) {
+        console.error('Error updating feedback read status:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Server error updating feedback read status'
         });
     }
 };

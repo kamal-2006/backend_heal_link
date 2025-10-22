@@ -2,7 +2,46 @@ const Appointment = require("../models/Appointment");
 const User = require("../models/User");
 const Doctor = require("../models/Doctor");
 const Patient = require("../models/Patient");
-const { updateDoctorAvailability } = require("../utils/doctorUtils");
+const { bulkSwapAppointments } = require("./bulkSwap");
+
+// Export the bulkSwapAppointments function
+exports.bulkSwapAppointments = bulkSwapAppointments;
+
+// Helper function to update doctor availability based on appointments
+const updateDoctorAvailability = async (doctorId) => {
+  try {
+    // Get all confirmed and scheduled appointments for this doctor
+    const appointments = await Appointment.find({
+      doctor: doctorId,
+      status: { $in: ["confirmed", "scheduled"] },
+    }).sort({ date: 1 });
+
+    // Generate timeSlots from appointments
+    const timeSlots = appointments.map((appointment) => {
+      const appointmentDate = new Date(appointment.date);
+      const startTime = appointmentDate.toTimeString().slice(0, 5); // HH:MM format
+      const endTime = new Date(appointmentDate.getTime() + 30 * 60000)
+        .toTimeString()
+        .slice(0, 5); // Add 30 minutes
+
+      return {
+        startTime,
+        endTime,
+        date: appointmentDate.toISOString().split("T")[0], // YYYY-MM-DD format
+        appointmentId: appointment._id,
+      };
+    });
+
+    // Update doctor availability
+    await Doctor.findByIdAndUpdate(doctorId, {
+      $set: {
+        "availability.timeSlots": timeSlots,
+      },
+    });
+  } catch (error) {
+    console.error("Error updating doctor availability:", error);
+  }
+};
 
 // @desc    Get all appointments
 // @route   GET /api/v1/appointments
@@ -217,15 +256,6 @@ exports.bookAppointment = async (req, res, next) => {
           error: "Invalid appointment date",
         });
       }
-      
-      // Prevent booking appointments before current time
-      const now = new Date();
-      if (appointmentDate < now) {
-        return res.status(400).json({
-          success: false,
-          error: "Cannot book appointments in the past",
-        });
-      }
 
       // Check for existing appointment at the same time
       const existingAppointment = await Appointment.findOne({
@@ -302,12 +332,6 @@ exports.bookAppointment = async (req, res, next) => {
         });
       }
 
-      console.log('🔍 DEBUG: Found doctor:', {
-        doctorId: doctor._id,
-        userId: doctor.user._id,
-        name: `${doctor.user.firstName} ${doctor.user.lastName}`
-      });
-
       // Validate and normalize date
       const appointmentDate = new Date(req.body.date);
       if (isNaN(appointmentDate.getTime())) {
@@ -323,9 +347,6 @@ exports.bookAppointment = async (req, res, next) => {
         date: appointmentDate,
         status: { $ne: "cancelled" }, // Not cancelled
       });
-
-      console.log('🔍 DEBUG: Checking for conflicts at:', appointmentDate);
-      console.log('🔍 DEBUG: Existing appointment found:', !!existingAppointment);
 
       if (existingAppointment) {
         return res.status(400).json({
@@ -441,40 +462,24 @@ exports.updateAppointment = async (req, res, next) => {
       });
     }
 
-    const updatePayload = { ...req.body };
-    let doctorUserIdForCheck = appointment.doctor;
-
-    // If a new doctor ID is provided, it's a Doctor document ID. We need to get the User ID.
-    if (req.body.doctor) {
-      const doctorDoc = await Doctor.findById(req.body.doctor);
-      if (!doctorDoc) {
-        return res.status(404).json({ success: false, error: "Selected doctor not found" });
-      }
-      // Set the payload to use the doctor's User ID, which is what's stored in the Appointment model
-      updatePayload.doctor = doctorDoc.user;
-      doctorUserIdForCheck = doctorDoc.user;
-    }
-
-    // If changing date or doctor, check for conflicts
-    if (req.body.date || req.body.doctor) {
-      const dateForCheck = req.body.date ? new Date(req.body.date) : appointment.date;
-      
+    // If changing date/time, check for conflicts
+    if (req.body.date && req.body.date !== appointment.date.toISOString()) {
       const existingAppointment = await Appointment.findOne({
-        doctor: doctorUserIdForCheck,
-        date: dateForCheck,
-        _id: { $ne: req.params.id },
-        status: { $in: ["scheduled", "confirmed"] },
+        doctor: appointment.doctor,
+        date: new Date(req.body.date),
+        _id: { $ne: req.params.id }, // Not this appointment
+        status: { $ne: "cancelled" }, // Not cancelled
       });
 
       if (existingAppointment) {
         return res.status(400).json({
           success: false,
-          error: "The selected doctor is not available at this time.",
+          error: "Doctor is not available at this time",
         });
       }
     }
 
-    appointment = await Appointment.findByIdAndUpdate(req.params.id, updatePayload, {
+    appointment = await Appointment.findByIdAndUpdate(req.params.id, req.body, {
       new: true,
       runValidators: true,
     })
@@ -487,14 +492,14 @@ exports.updateAppointment = async (req, res, next) => {
         select: "firstName lastName email phone",
       });
 
-    // Update doctor availability
+    // Update doctor availability with new appointment time
     try {
       const doctorDoc = await Doctor.findOne({ user: appointment.doctor._id });
       if (doctorDoc) {
         await updateDoctorAvailability(doctorDoc._id);
       }
     } catch (availabilityError) {
-      console.error("Failed to update doctor availability:", availabilityError);
+
     }
 
     res.status(200).json({
@@ -710,128 +715,6 @@ exports.confirmAppointment = async (req, res, next) => {
     res.status(400).json({
       success: false,
       error: error.message,
-    });
-  }
-};
-
-// @desc    Get appointments that need feedback for the current patient
-// @route   GET /api/v1/appointments/needFeedback
-// @access  Private (Patient only)
-exports.getAppointmentsNeedingFeedback = async (req, res, next) => {
-  try {
-    const patientUserId = req.user.id;
-    
-    // Find completed appointments where the patient hasn't given feedback yet
-    // We need to check if there's already feedback for this appointment
-    const Feedback = require('../models/Feedback');
-    
-    // Get appointments for this patient that could potentially need feedback
-    // This includes scheduled/confirmed appointments that are in the past
-    const pastAppointments = await Appointment.find({
-      patient: patientUserId,
-      status: { $in: ['scheduled', 'confirmed', 'completed'] },
-      date: { $lt: new Date() } // Only past appointments
-    })
-    .populate({
-      path: 'doctor',
-      select: 'firstName lastName'
-    })
-    .sort({ date: -1 });
-
-    // Get doctor profiles for the appointments to get specialization
-    const doctorUserIds = pastAppointments.map(apt => apt.doctor._id);
-    const doctorProfiles = await Doctor.find({
-      user: { $in: doctorUserIds }
-    }).populate('user', 'firstName lastName');
-
-    // Create a map of user ID to doctor profile
-    const doctorProfileMap = {};
-    doctorProfiles.forEach(profile => {
-      doctorProfileMap[profile.user._id.toString()] = profile;
-    });
-
-    // Get all feedback IDs that this patient has already submitted
-    const existingFeedback = await Feedback.find({
-      patient: patientUserId
-    }).select('appointment');
-    
-    const feedbackAppointmentIds = existingFeedback.map(fb => fb.appointment.toString());
-    
-    // Filter out appointments that already have feedback
-    const appointmentsNeedingFeedback = pastAppointments.filter(appointment => 
-      !feedbackAppointmentIds.includes(appointment._id.toString())
-    );
-
-    // Transform the data to include doctor information properly
-    const transformedAppointments = appointmentsNeedingFeedback.map(appointment => {
-      const doctorProfile = doctorProfileMap[appointment.doctor._id.toString()];
-      
-      return {
-        id: appointment._id,
-        _id: appointment._id,
-        date: appointment.date,
-        reason: appointment.reason,
-        notes: appointment.notes,
-        status: 'completed', // Mark as completed since it's in the past
-        doctor: appointment.doctor,
-        doctorName: appointment.doctor ? 
-          `Dr. ${appointment.doctor.firstName} ${appointment.doctor.lastName}` 
-          : 'Unknown Doctor',
-        specialty: doctorProfile?.specialization || 'General Medicine'
-      };
-    });
-
-    res.status(200).json({
-      success: true,
-      count: transformedAppointments.length,
-      data: transformedAppointments
-    });
-  } catch (error) {
-    console.error('Error getting appointments needing feedback:', error);
-    res.status(400).json({
-      success: false,
-      error: error.message
-    });
-  }
-};
-
-// @desc    Mark appointment as completed
-// @route   PUT /api/v1/appointments/:id/complete
-// @access  Private (Doctor, Admin)
-exports.markAppointmentCompleted = async (req, res, next) => {
-  try {
-    let appointment = await Appointment.findById(req.params.id);
-
-    if (!appointment) {
-      return res.status(404).json({
-        success: false,
-        error: 'Appointment not found'
-      });
-    }
-
-    // Update appointment status to completed
-    appointment = await Appointment.findByIdAndUpdate(
-      req.params.id,
-      { status: 'completed' },
-      { new: true, runValidators: true }
-    )
-    .populate({
-      path: 'doctor',
-      select: 'firstName lastName'
-    })
-    .populate({
-      path: 'patient',
-      select: 'firstName lastName'
-    });
-
-    res.status(200).json({
-      success: true,
-      data: appointment
-    });
-  } catch (error) {
-    res.status(400).json({
-      success: false,
-      error: error.message
     });
   }
 };
