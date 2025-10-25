@@ -20,7 +20,7 @@ exports.getFeedbacks = async (req, res, next) => {
         let query = Feedback.find(filterQuery)
             .populate({
                 path: 'doctor',
-                select: 'firstName lastName specialty'
+                select: 'firstName lastName email profilePicture'
             })
             .populate({
                 path: 'patient',
@@ -52,6 +52,30 @@ exports.getFeedbacks = async (req, res, next) => {
         query = query.skip(startIndex).limit(limit);
         const feedback = await query;
 
+        // Enhance with doctor specialization from Doctor model
+        const Doctor = require('../models/Doctor');
+        const enhancedFeedback = [];
+        
+        for (let fb of feedback) {
+            if (fb.doctor) {
+                const doctorInfo = await Doctor.findOne({ user: fb.doctor._id })
+                    .select('specialization experience');
+                
+                const enhancedFb = {
+                    ...fb.toObject(),
+                    doctor: {
+                        ...fb.doctor.toObject(),
+                        specialization: doctorInfo?.specialization || 'General Medicine',
+                        experience: doctorInfo?.experience || 0
+                    }
+                };
+                
+                enhancedFeedback.push(enhancedFb);
+            } else {
+                enhancedFeedback.push(fb);
+            }
+        }
+
         const pagination = {};
         if (endIndex < total) {
             pagination.next = { page: page + 1, limit };
@@ -62,9 +86,9 @@ exports.getFeedbacks = async (req, res, next) => {
 
         res.status(200).json({
             success: true,
-            count: feedback.length,
+            count: enhancedFeedback.length,
             pagination,
-            data: feedback
+            data: enhancedFeedback
         });
     } catch (error) {
         console.error('Get feedbacks error:', error);
@@ -83,7 +107,7 @@ exports.getFeedback = async (req, res, next) => {
         const feedback = await Feedback.findById(req.params.id)
             .populate({
                 path: 'doctor',
-                select: 'firstName lastName specialty'
+                select: 'firstName lastName email profilePicture'
             })
             .populate({
                 path: 'patient',
@@ -101,9 +125,27 @@ exports.getFeedback = async (req, res, next) => {
             });
         }
 
+        // Enhance with doctor specialization
+        const Doctor = require('../models/Doctor');
+        let enhancedFeedback = feedback.toObject();
+        
+        if (feedback.doctor) {
+            const doctorInfo = await Doctor.findOne({ user: feedback.doctor._id })
+                .select('specialization experience');
+            
+            enhancedFeedback = {
+                ...enhancedFeedback,
+                doctor: {
+                    ...feedback.doctor.toObject(),
+                    specialization: doctorInfo?.specialization || 'General Medicine',
+                    experience: doctorInfo?.experience || 0
+                }
+            };
+        }
+
         res.status(200).json({
             success: true,
-            data: feedback
+            data: enhancedFeedback
         });
     } catch (error) {
         res.status(500).json({
@@ -118,14 +160,59 @@ exports.getFeedback = async (req, res, next) => {
 // @access  Private/Patient
 exports.createFeedback = async (req, res, next) => {
     try {
+        // Ensure patient ID is set from authenticated user
         req.body.patient = req.user.id;
+        
+        // Check if feedback already exists for this appointment
+        if (req.body.appointment) {
+            const existingFeedback = await Feedback.findOne({ 
+                appointment: req.body.appointment,
+                patient: req.user.id 
+            });
+            
+            if (existingFeedback) {
+                return res.status(400).json({
+                    success: false,
+                    error: 'Feedback already exists for this appointment'
+                });
+            }
+        }
+        
         const feedback = await Feedback.create(req.body);
+
+        // Populate the created feedback with doctor and appointment info
+        const populatedFeedback = await Feedback.findById(feedback._id)
+            .populate({
+                path: 'doctor',
+                select: 'firstName lastName email profilePicture'
+            })
+            .populate({
+                path: 'appointment',
+                select: 'date reason status notes'
+            });
+
+        // Enhance with doctor specialization
+        const Doctor = require('../models/Doctor');
+        const doctorInfo = await Doctor.findOne({ user: populatedFeedback.doctor._id })
+            .select('specialization experience');
+
+        const enhancedFeedback = {
+            ...populatedFeedback.toObject(),
+            doctor: {
+                ...populatedFeedback.doctor.toObject(),
+                specialization: doctorInfo?.specialization || 'General Medicine',
+                experience: doctorInfo?.experience || 0
+            }
+        };
+
+        console.log(`Feedback created for appointment ${req.body.appointment} by patient ${req.user.id}`);
 
         res.status(201).json({
             success: true,
-            data: feedback
+            data: enhancedFeedback
         });
     } catch (error) {
+        console.error('Create feedback error:', error);
         res.status(400).json({
             success: false,
             error: error.message
@@ -266,7 +353,7 @@ exports.getMyFeedback = async (req, res, next) => {
         const feedback = await Feedback.find({ patient: req.user.id })
             .populate({
                 path: 'doctor',
-                select: 'firstName lastName specialty'
+                select: 'firstName lastName email profilePicture'
             })
             .populate({
                 path: 'appointment',
@@ -274,12 +361,38 @@ exports.getMyFeedback = async (req, res, next) => {
             })
             .sort('-createdAt');
 
+        // Enhance with doctor specialization from Doctor model
+        const Doctor = require('../models/Doctor');
+        const enhancedFeedback = [];
+        
+        for (let fb of feedback) {
+            if (fb.doctor && fb.doctor._id) {
+                const doctorInfo = await Doctor.findOne({ user: fb.doctor._id })
+                    .select('specialization experience');
+                
+                const enhancedFb = {
+                    ...fb.toObject(),
+                    doctor: {
+                        ...fb.doctor.toObject(),
+                        specialization: doctorInfo?.specialization || 'General Medicine',
+                        experience: doctorInfo?.experience || 0
+                    }
+                };
+                
+                enhancedFeedback.push(enhancedFb);
+            } else {
+                // If doctor is missing, include feedback without doctor enhancement
+                enhancedFeedback.push(fb.toObject());
+            }
+        }
+
         res.status(200).json({
             success: true,
-            count: feedback.length,
-            data: feedback
+            count: enhancedFeedback.length,
+            data: enhancedFeedback
         });
     } catch (error) {
+        console.error('Error getting patient feedback:', error);
         res.status(500).json({
             success: false,
             error: 'Server Error'
@@ -424,26 +537,47 @@ exports.getPatientFeedbackHistory = async (req, res, next) => {
 // @access  Private (Patient only)
 exports.getAppointmentsForFeedback = async (req, res, next) => {
     try {
-        // Find completed appointments that don't have feedback yet
+        // First, get completed appointments for the patient
         const appointments = await Appointment.find({
             patient: req.user.id,
             status: 'completed'
         })
         .populate({
             path: 'doctor',
-            select: 'firstName lastName email specialization profilePicture'
+            select: 'firstName lastName email profilePicture'
         })
         .sort('-date');
 
-        // Filter out appointments that already have feedback
+        // For each appointment, get the doctor's additional info from Doctor model and check for existing feedback
         const appointmentsWithoutFeedback = [];
+        const Doctor = require('../models/Doctor');
+        
         for (let appointment of appointments) {
+            // Check if feedback already exists for this appointment
             const existingFeedback = await Feedback.findOne({ appointment: appointment._id });
+            
             if (!existingFeedback) {
-                appointmentsWithoutFeedback.push(appointment);
+                // Get additional doctor information
+                const doctorInfo = await Doctor.findOne({ user: appointment.doctor._id })
+                    .select('specialization experience qualification');
+                
+                // Create enhanced appointment object
+                const enhancedAppointment = {
+                    ...appointment.toObject(),
+                    doctor: {
+                        ...appointment.doctor.toObject(),
+                        specialization: doctorInfo?.specialization || 'General Medicine',
+                        experience: doctorInfo?.experience || 0,
+                        qualification: doctorInfo?.qualification || ''
+                    }
+                };
+                
+                appointmentsWithoutFeedback.push(enhancedAppointment);
             }
         }
 
+        console.log(`Found ${appointmentsWithoutFeedback.length} appointments needing feedback for patient ${req.user.id}`);
+        
         res.status(200).json({
             success: true,
             count: appointmentsWithoutFeedback.length,

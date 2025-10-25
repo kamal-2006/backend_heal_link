@@ -309,11 +309,18 @@ exports.bookAppointment = async (req, res, next) => {
       });
 
       // Validate and normalize date
+      if (!req.body.date) {
+        return res.status(400).json({
+          success: false,
+          error: "Date is required",
+        });
+      }
+      
       const appointmentDate = new Date(req.body.date);
       if (isNaN(appointmentDate.getTime())) {
         return res.status(400).json({
           success: false,
-          error: "Invalid appointment date",
+          error: `Invalid appointment date format. Received: ${req.body.date}`,
         });
       }
 
@@ -715,82 +722,83 @@ exports.confirmAppointment = async (req, res, next) => {
 };
 
 // @desc    Get appointments that need feedback for the current patient
-// @route   GET /api/v1/appointments/needFeedback
+// @route   GET /api/v1/appointments/feedback-needed/:patientId
 // @access  Private (Patient only)
 exports.getAppointmentsNeedingFeedback = async (req, res, next) => {
   try {
-    const patientUserId = req.user.id;
-    
-    // Find completed appointments where the patient hasn't given feedback yet
-    // We need to check if there's already feedback for this appointment
+    const patientId = req.params.patientId;
     const Feedback = require('../models/Feedback');
-    
-    // Get appointments for this patient that could potentially need feedback
-    // This includes scheduled/confirmed appointments that are in the past
-    const pastAppointments = await Appointment.find({
-      patient: patientUserId,
-      status: { $in: ['scheduled', 'confirmed', 'completed'] },
-      date: { $lt: new Date() } // Only past appointments
+
+    // 1. Get all completed appointments for the patient
+    const appointments = await Appointment.find({
+      patient: patientId,
+      status: 'completed',
+      doctor: { $exists: true, $ne: null } // Ensure doctor is not null
     })
     .populate({
       path: 'doctor',
-      select: 'firstName lastName'
+      select: 'name email',
+      populate: {
+        path: 'user',
+        select: 'name email'
+      }
     })
-    .sort({ date: -1 });
+    .populate({
+      path: 'patient',
+      select: 'name email'
+    })
+    .sort({ appointmentDate: -1 });
 
-    // Get doctor profiles for the appointments to get specialization
-    const doctorUserIds = pastAppointments.map(apt => apt.doctor._id);
-    const doctorProfiles = await Doctor.find({
-      user: { $in: doctorUserIds }
-    }).populate('user', 'firstName lastName');
+    // 2. Get all feedback submitted by the patient
+    const existingFeedback = await Feedback.find({ patient: patientId }).select('appointment');
+    const feedbackAppointmentIds = new Set(existingFeedback.map(fb => fb.appointment.toString()));
 
-    // Create a map of user ID to doctor profile
-    const doctorProfileMap = {};
-    doctorProfiles.forEach(profile => {
-      doctorProfileMap[profile.user._id.toString()] = profile;
-    });
-
-    // Get all feedback IDs that this patient has already submitted
-    const existingFeedback = await Feedback.find({
-      patient: patientUserId
-    }).select('appointment');
-    
-    const feedbackAppointmentIds = existingFeedback.map(fb => fb.appointment.toString());
-    
-    // Filter out appointments that already have feedback
-    const appointmentsNeedingFeedback = pastAppointments.filter(appointment => 
-      !feedbackAppointmentIds.includes(appointment._id.toString())
+    // 3. Filter out appointments that already have feedback
+    const appointmentsNeedingFeedback = appointments.filter(
+      (appointment) => !feedbackAppointmentIds.has(appointment._id.toString())
     );
 
-    // Transform the data to include doctor information properly
+    // 4. Transform data for a consistent response
     const transformedAppointments = appointmentsNeedingFeedback.map(appointment => {
-      const doctorProfile = doctorProfileMap[appointment.doctor._id.toString()];
-      
+      const doctor = appointment.doctor;
+      const patient = appointment.patient;
+
+      // This check is critical to prevent crashes if a doctor record is somehow missing
+      if (!doctor) {
+        console.warn(`Appointment ${appointment._id} is missing a doctor. Skipping.`);
+        return null;
+      }
+
       return {
-        id: appointment._id,
         _id: appointment._id,
-        date: appointment.date,
+        appointmentDate: appointment.appointmentDate,
         reason: appointment.reason,
-        notes: appointment.notes,
-        status: 'completed', // Mark as completed since it's in the past
-        doctor: appointment.doctor,
-        doctorName: appointment.doctor ? 
-          `Dr. ${appointment.doctor.firstName} ${appointment.doctor.lastName}` 
-          : 'Unknown Doctor',
-        specialty: doctorProfile?.specialization || 'General Medicine'
+        status: appointment.status,
+        doctor: {
+          _id: doctor._id,
+          name: doctor.name,
+          email: doctor.email
+        },
+        patient: patient ? {
+          _id: patient._id,
+          name: patient.name,
+          email: patient.email
+        } : null,
+        hasFeedback: false // By definition, these don't have feedback yet
       };
-    });
+    }).filter(Boolean); // Filter out any nulls from the previous step
 
     res.status(200).json({
       success: true,
       count: transformedAppointments.length,
-      data: transformedAppointments
+      data: transformedAppointments,
     });
   } catch (error) {
-    console.error('Error getting appointments needing feedback:', error);
-    res.status(400).json({
+    console.error('Error in getAppointmentsNeedingFeedback:', error);
+    res.status(500).json({
       success: false,
-      error: error.message
+      error: 'Server Error: Could not retrieve appointments for feedback.',
+      details: error.message
     });
   }
 };

@@ -21,12 +21,13 @@ const {
 const router = express.Router();
 
 const { protect, authorize } = require('../middleware/auth');
+const { upload } = require('../middleware/upload');
 
 // Patient-specific routes (must be authenticated as patient)
 router
   .route('/me')
   .get(protect, authorize('patient'), getMyProfile)
-  .put(protect, authorize('patient'), updateMyProfile);
+  .put(protect, authorize('patient'), upload, updateMyProfile);
 
 router
   .route('/me/settings')
@@ -36,10 +37,6 @@ router
   .route('/me/notifications')
   .get(protect, authorize('patient'), getNotificationPreferences)
   .put(protect, authorize('patient'), updateNotificationPreferences);
-
-router
-  .route('/dashboard-data')
-  .get(protect, authorize('patient'), getPatientDashboard);
 
 router
   .route('/dashboard-data')

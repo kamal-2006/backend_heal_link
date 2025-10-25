@@ -266,7 +266,7 @@ exports.getMyProfile = async (req, res, next) => {
         const patient = await Patient.findOne({ user: req.user.id })
             .populate({
                 path: 'user',
-                select: 'firstName lastName email phone role createdAt'
+                select: 'firstName lastName email phone role createdAt profilePicture'
             })
             .populate({
                 path: 'appointments',
@@ -290,7 +290,7 @@ exports.getMyProfile = async (req, res, next) => {
             const populatedPatient = await Patient.findById(newPatient._id)
                 .populate({
                     path: 'user',
-                    select: 'firstName lastName email phone role createdAt'
+                    select: 'firstName lastName email phone role createdAt profilePicture'
                 });
 
             return res.status(200).json({
@@ -344,11 +344,12 @@ exports.updateMyProfile = async (req, res, next) => {
         let patient = await Patient.findOne({ user: req.user.id });
 
         // Update User model fields if provided
-        if (firstName !== undefined || lastName !== undefined || phone !== undefined) {
+        if (firstName !== undefined || lastName !== undefined || phone !== undefined || req.file) {
             const userUpdateData = {};
             if (firstName !== undefined) userUpdateData.firstName = firstName;
             if (lastName !== undefined) userUpdateData.lastName = lastName;
             if (phone !== undefined) userUpdateData.phone = phone;
+            if (req.file) userUpdateData.profilePicture = req.file.path;
 
             console.log('Updating user data:', userUpdateData);
             await User.findByIdAndUpdate(
@@ -387,45 +388,114 @@ exports.updateMyProfile = async (req, res, next) => {
         if (smokingStatus !== undefined) updateData.smokingStatus = sanitizeEnumField(smokingStatus, validSmokingStatuses);
         if (alcoholUse !== undefined) updateData.alcoholUse = sanitizeEnumField(alcoholUse, validAlcoholUses);
 
+
+
+        // Handle nested object fields - parse JSON strings if needed (from FormData)
+        let parsedHeight = height;
+        let parsedWeight = weight;
+        let parsedAddress = address;
+        let parsedEmergencyContact = emergencyContact;
+        let parsedInsuranceInfo = insuranceInfo;
+        let parsedAllergies = allergies;
+        let parsedMedicalConditions = medicalConditions;
+        let parsedMedications = medications;
+
+        // Parse JSON strings if they exist (from FormData)
+        if (typeof height === 'string') {
+            try {
+                parsedHeight = JSON.parse(height);
+            } catch (e) {
+                console.log('Height is not JSON, using as string');
+            }
+        }
+        if (typeof weight === 'string') {
+            try {
+                parsedWeight = JSON.parse(weight);
+            } catch (e) {
+                console.log('Weight is not JSON, using as string');
+            }
+        }
+        if (typeof address === 'string') {
+            try {
+                parsedAddress = JSON.parse(address);
+            } catch (e) {
+                console.log('Address is not JSON, using as string');
+            }
+        }
+        if (typeof emergencyContact === 'string') {
+            try {
+                parsedEmergencyContact = JSON.parse(emergencyContact);
+            } catch (e) {
+                console.log('EmergencyContact is not JSON, using as string');
+            }
+        }
+        if (typeof insuranceInfo === 'string') {
+            try {
+                parsedInsuranceInfo = JSON.parse(insuranceInfo);
+            } catch (e) {
+                console.log('InsuranceInfo is not JSON, using as string');
+            }
+        }
+        if (typeof allergies === 'string' && allergies.startsWith('[')) {
+            try {
+                parsedAllergies = JSON.parse(allergies);
+            } catch (e) {
+                console.log('Allergies is not JSON, using as string');
+            }
+        }
+        if (typeof medicalConditions === 'string' && medicalConditions.startsWith('[')) {
+            try {
+                parsedMedicalConditions = JSON.parse(medicalConditions);
+            } catch (e) {
+                console.log('MedicalConditions is not JSON, using as string');
+            }
+        }
+        if (typeof medications === 'string' && medications.startsWith('[')) {
+            try {
+                parsedMedications = JSON.parse(medications);
+            } catch (e) {
+                console.log('Medications is not JSON, using as string');
+            }
+        }
+
         // Handle array fields
-        if (allergies !== undefined) updateData.allergies = Array.isArray(allergies) ? allergies : [];
-        if (medicalConditions !== undefined) updateData.medicalConditions = Array.isArray(medicalConditions) ? medicalConditions : [];
-        if (medications !== undefined) updateData.medications = Array.isArray(medications) ? medications : [];
+        if (parsedAllergies !== undefined) updateData.allergies = Array.isArray(parsedAllergies) ? parsedAllergies : [];
+        if (parsedMedicalConditions !== undefined) updateData.medicalConditions = Array.isArray(parsedMedicalConditions) ? parsedMedicalConditions : [];
+        if (parsedMedications !== undefined) updateData.medications = Array.isArray(parsedMedications) ? parsedMedications : [];
 
-        // Handle nested object fields - only update if they contain data
-        if (height && (height.value !== undefined || height.unit !== undefined)) {
+        if (parsedHeight && (parsedHeight.value !== undefined || parsedHeight.unit !== undefined)) {
             updateData.height = {};
-            if (height.value !== undefined) updateData.height.value = height.value;
-            if (height.unit !== undefined) updateData.height.unit = height.unit;
+            if (parsedHeight.value !== undefined) updateData.height.value = parsedHeight.value;
+            if (parsedHeight.unit !== undefined) updateData.height.unit = parsedHeight.unit;
         }
 
-        if (weight && (weight.value !== undefined || weight.unit !== undefined)) {
+        if (parsedWeight && (parsedWeight.value !== undefined || parsedWeight.unit !== undefined)) {
             updateData.weight = {};
-            if (weight.value !== undefined) updateData.weight.value = weight.value;
-            if (weight.unit !== undefined) updateData.weight.unit = weight.unit;
+            if (parsedWeight.value !== undefined) updateData.weight.value = parsedWeight.value;
+            if (parsedWeight.unit !== undefined) updateData.weight.unit = parsedWeight.unit;
         }
 
-        if (address && (address.street || address.city || address.state || address.zipCode)) {
+        if (parsedAddress && (parsedAddress.street || parsedAddress.city || parsedAddress.state || parsedAddress.zipCode)) {
             updateData.address = {};
-            if (address.street !== undefined) updateData.address.street = address.street;
-            if (address.city !== undefined) updateData.address.city = address.city;
-            if (address.state !== undefined) updateData.address.state = address.state;
-            if (address.zipCode !== undefined) updateData.address.zipCode = address.zipCode;
+            if (parsedAddress.street !== undefined) updateData.address.street = parsedAddress.street;
+            if (parsedAddress.city !== undefined) updateData.address.city = parsedAddress.city;
+            if (parsedAddress.state !== undefined) updateData.address.state = parsedAddress.state;
+            if (parsedAddress.zipCode !== undefined) updateData.address.zipCode = parsedAddress.zipCode;
         }
 
-        if (emergencyContact && (emergencyContact.name || emergencyContact.phone || emergencyContact.relationship || emergencyContact.email)) {
+        if (parsedEmergencyContact && (parsedEmergencyContact.name || parsedEmergencyContact.phone || parsedEmergencyContact.relationship || parsedEmergencyContact.email)) {
             updateData.emergencyContact = {};
-            if (emergencyContact.name !== undefined) updateData.emergencyContact.name = emergencyContact.name;
-            if (emergencyContact.phone !== undefined) updateData.emergencyContact.phone = emergencyContact.phone;
-            if (emergencyContact.relationship !== undefined) updateData.emergencyContact.relationship = emergencyContact.relationship;
-            if (emergencyContact.email !== undefined) updateData.emergencyContact.email = emergencyContact.email;
+            if (parsedEmergencyContact.name !== undefined) updateData.emergencyContact.name = parsedEmergencyContact.name;
+            if (parsedEmergencyContact.phone !== undefined) updateData.emergencyContact.phone = parsedEmergencyContact.phone;
+            if (parsedEmergencyContact.relationship !== undefined) updateData.emergencyContact.relationship = parsedEmergencyContact.relationship;
+            if (parsedEmergencyContact.email !== undefined) updateData.emergencyContact.email = parsedEmergencyContact.email;
         }
 
-        if (insuranceInfo && (insuranceInfo.provider || insuranceInfo.policyNumber || insuranceInfo.groupNumber)) {
+        if (parsedInsuranceInfo && (parsedInsuranceInfo.provider || parsedInsuranceInfo.policyNumber || parsedInsuranceInfo.groupNumber)) {
             updateData.insuranceInfo = {};
-            if (insuranceInfo.provider !== undefined) updateData.insuranceInfo.provider = insuranceInfo.provider;
-            if (insuranceInfo.policyNumber !== undefined) updateData.insuranceInfo.policyNumber = insuranceInfo.policyNumber;
-            if (insuranceInfo.groupNumber !== undefined) updateData.insuranceInfo.groupNumber = insuranceInfo.groupNumber;
+            if (parsedInsuranceInfo.provider !== undefined) updateData.insuranceInfo.provider = parsedInsuranceInfo.provider;
+            if (parsedInsuranceInfo.policyNumber !== undefined) updateData.insuranceInfo.policyNumber = parsedInsuranceInfo.policyNumber;
+            if (parsedInsuranceInfo.groupNumber !== undefined) updateData.insuranceInfo.groupNumber = parsedInsuranceInfo.groupNumber;
         }
 
         console.log('Final update data for patient:', JSON.stringify(updateData, null, 2));
@@ -450,7 +520,7 @@ exports.updateMyProfile = async (req, res, next) => {
         // Populate user details
         await patient.populate({
             path: 'user',
-            select: 'firstName lastName email phone role'
+            select: 'firstName lastName email phone role profilePicture'
         });
 
         console.log('Updated patient profile:', patient._id);
@@ -935,21 +1005,24 @@ exports.getPatientDashboardData = async (req, res, next) => {
             });
         }
 
-        const [appointments, medications, notifications, reports] = await Promise.all([
-            Appointment.find({ patient: patient._id }).populate('doctor', 'firstName lastName'),
-            // Assuming you have a Medication model
-            // Medication.find({ patient: patient._id, status: 'active' }),
-            // Assuming you have a Notification model
-            // Notification.find({ user: req.user.id, read: false }),
-            // Assuming you have a MedicalRecord model
-            // MedicalRecord.find({ patient: patient._id })
+        // Import models
+        const Medication = require('../models/Medication');
+        
+        // Use req.user.id for appointments since Appointment.patient references User ID
+        const [appointments, medications] = await Promise.all([
+            Appointment.find({ patient: req.user.id }).populate('doctor', 'firstName lastName'),
+            Medication.find({ patient: patient._id }).populate('doctor', 'firstName lastName')
         ]);
+
+        // For now, set empty arrays for notifications and reports until those models exist
+        const notifications = [];
+        const reports = [];
 
         res.status(200).json({
             success: true,
             data: {
                 appointments,
-                prescriptions: medications,
+                prescriptions: medications, // Dashboard expects this as prescriptions
                 notifications,
                 reports
             }

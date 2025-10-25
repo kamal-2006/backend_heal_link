@@ -103,7 +103,7 @@ exports.getAvailableDoctors = async (req, res, next) => {
                 const matchingDoctors = await Doctor.find(doctorFilterQuery).populate({
                     path: 'user',
                     select: 'firstName lastName email phone'
-                });
+                }).select('specialization user rating consultationFee');
         
                 // If no startTime or endTime is specified, return all doctors with the specialization
                 if (!startTime || !endTime) {
@@ -136,15 +136,11 @@ exports.getAvailableDoctors = async (req, res, next) => {
                 // conflictingAppointments.doctor contains User IDs (as per Appointment model)
                 const conflictingUserIds = conflictingAppointments.map(a => a.doctor.toString());
         
-                // Find all doctors, then filter out those with conflicts
-                const allDoctors = await Doctor.find({ isActive: true })
-                .populate({
-                    path: 'user',
-                    select: 'firstName lastName email phone'
-                })
-                .select('specialization user rating consultationFee');
-        
-                const availableDoctors = allDoctors.filter(doctor => !conflictingUserIds.includes(doctor.user._id.toString()));
+                // Filter out doctors with conflicts from the already filtered matchingDoctors
+                const availableDoctors = matchingDoctors.filter(doctor => 
+                    !conflictingUserIds.includes(doctor.user._id.toString())
+                );
+
         res.status(200).json({ 
             success: true, 
             count: availableDoctors.length, 

@@ -51,7 +51,7 @@ router
   .put(protect, authorize('admin'), updateExpiredAppointments);
 
 router
-  .route('/needFeedback')
+  .route('/feedback-needed/:patientId')
   .get(protect, authorize('patient'), getAppointmentsNeedingFeedback);
 
 router

@@ -54,7 +54,7 @@ exports.register = async (req, res, next) => {
 // @access  Public
 exports.login = async (req, res, next) => {
     try {
-        const { email, password } = req.body;
+        const { email, password, twoFactorCode } = req.body;
 
         // Validate email and password
         if (!email || !password) {
@@ -62,7 +62,7 @@ exports.login = async (req, res, next) => {
         }
 
         // Check for user
-        const user = await User.findOne({ email }).select('+password +isDefaultPassword');
+        const user = await User.findOne({ email }).select('+password +isDefaultPassword +twoFactorSecret');
 
         if (!user) {
             return res.status(401).json({ success: false, error: 'Invalid credentials' });
@@ -73,6 +73,45 @@ exports.login = async (req, res, next) => {
 
         if (!isMatch) {
             return res.status(401).json({ success: false, error: 'Invalid credentials' });
+        }
+
+        // Check if 2FA is enabled
+        if (user.twoFactorEnabled) {
+            if (!twoFactorCode) {
+                // First step - password verified, now need 2FA code
+                return res.status(200).json({
+                    success: true,
+                    requiresTwoFactor: true,
+                    message: 'Please enter your two-factor authentication code',
+                    tempUserId: user._id // Temporary identifier for the next step
+                });
+            }
+
+            // Verify 2FA code
+            const verified = speakeasy.totp.verify({
+                secret: user.twoFactorSecret,
+                encoding: 'base32',
+                token: twoFactorCode,
+                window: 2 // Allow 2 time steps (60 seconds) tolerance
+            });
+
+            if (!verified) {
+                // Check backup codes if TOTP verification failed
+                const backupCodeMatch = user.backupCodes.find(
+                    bc => bc.code === twoFactorCode.toUpperCase() && !bc.used
+                );
+
+                if (backupCodeMatch) {
+                    // Mark backup code as used
+                    backupCodeMatch.used = true;
+                    await user.save();
+                } else {
+                    return res.status(401).json({ 
+                        success: false, 
+                        error: 'Invalid or expired two-factor authentication code' 
+                    });
+                }
+            }
         }
 
         sendTokenResponse(user, 200, res);
@@ -217,6 +256,13 @@ exports.googleLogin = async (req, res, next) => {
           verified: payload.email_verified
         };
         user.isGoogleUser = true;
+        // Ensure Google users are always patients
+        user.role = 'patient';
+        await user.save();
+      }
+      // For existing Google users, ensure they are patients
+      if (user.role !== 'patient') {
+        user.role = 'patient';
         await user.save();
       }
     } else {
@@ -231,8 +277,11 @@ exports.googleLogin = async (req, res, next) => {
           verified: payload.email_verified
         },
         isGoogleUser: true,
-        role: 'patient' // Default role, can be changed later
+        role: 'patient' // Default role for Google users
       });
+      
+      // Create patient profile for new Google users
+      await Patient.create({ user: user._id });
     }
     
     sendTokenResponse(user, 200, res);

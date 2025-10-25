@@ -14,6 +14,10 @@ const PatientSchema = new mongoose.Schema({
       return 'P-' + Math.floor(1000 + Math.random() * 9000);
     }
   },
+  profileImage: {
+    type: String,
+    default: null
+  },
   dateOfBirth: {
     type: Date
   },

@@ -9,7 +9,7 @@ const MedicationSchema = new mongoose.Schema({
   doctor: {
     type: mongoose.Schema.ObjectId,
     ref: 'User',
-    required: true
+    required: false // Allow patient to add their own medications
   },
   name: {
     type: String,
