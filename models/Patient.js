@@ -7,6 +7,11 @@ const PatientSchema = new mongoose.Schema({
     required: true,
     index: true
   },
+  primaryDoctor: {
+    type: mongoose.Schema.ObjectId,
+    ref: 'User',
+    index: true
+  },
   patientId: {
     type: String,
     unique: true,

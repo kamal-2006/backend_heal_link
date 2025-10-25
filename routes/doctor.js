@@ -5,6 +5,7 @@ const {
   getDoctors,
   getDoctor,
   getDoctorAppointments,
+  getDoctorDashboardData,
 } = require("../controllers/doctor");
 const { protect, authorize } = require("../middleware/auth");
 
@@ -15,6 +16,13 @@ router
   .route("/me")
   .get(protect, authorize("doctor"), getDoctorProfile)
   .put(protect, authorize("doctor"), updateDoctorProfile);
+
+router.get(
+  "/dashboard-data",
+  protect,
+  authorize("doctor"),
+  getDoctorDashboardData
+);
 
 // Doctor appointments route - Allow both doctors and admins to access
 router.get(

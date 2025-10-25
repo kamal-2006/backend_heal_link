@@ -16,6 +16,12 @@ const app = express();
 // Body parser
 app.use(express.json());
 
+// Log all incoming requests
+app.use((req, res, next) => {
+  console.log(`${req.method} ${req.originalUrl}`);
+  next();
+});
+
 // Enable CORS for frontend origin
 app.use(
   cors({
