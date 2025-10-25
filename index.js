@@ -25,7 +25,7 @@ app.use((req, res, next) => {
 // Enable CORS for frontend origin
 app.use(
   cors({
-    origin: ["http://localhost:3000", "http://localhost:3001", process.env.FRONTEND_ORIGIN].filter(
+    origin: ["http://localhost:3000", "https://project-heal-link.vercel.app/", process.env.FRONTEND_ORIGIN].filter(
       Boolean
     ),
     credentials: true,
