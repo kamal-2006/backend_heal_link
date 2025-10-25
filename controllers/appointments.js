@@ -725,3 +725,59 @@ exports.confirmAppointment = async (req, res, next) => {
     });
   }
 };
+
+// @desc    Mark appointment as completed
+// @route   PUT /api/v1/appointments/:id/complete
+// @access  Private (Doctor, Admin)
+exports.markAppointmentCompleted = async (req, res, next) => {
+  try {
+    let appointment = await Appointment.findById(req.params.id);
+
+    if (!appointment) {
+      return res.status(404).json({
+        success: false,
+        error: 'Appointment not found'
+      });
+    }
+
+    // Authorization check
+    if (req.user.role !== 'admin' && appointment.doctor.toString() !== req.user.id) {
+      return res.status(401).json({
+        success: false,
+        error: 'Not authorized to update this appointment'
+      });
+    }
+
+    // Only allow completing scheduled or confirmed appointments
+    if (!['scheduled', 'confirmed'].includes(appointment.status)) {
+      return res.status(400).json({
+        success: false,
+        error: `Cannot mark ${appointment.status} appointment as completed`
+      });
+    }
+
+    appointment = await Appointment.findByIdAndUpdate(
+      req.params.id,
+      { status: 'completed' },
+      { new: true, runValidators: true }
+    )
+    .populate({
+      path: 'doctor',
+      select: 'firstName lastName email'
+    })
+    .populate({
+      path: 'patient',
+      select: 'firstName lastName email'
+    });
+
+    res.status(200).json({
+      success: true,
+      data: appointment
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      error: error.message
+    });
+  }
+};

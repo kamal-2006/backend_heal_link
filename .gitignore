@@ -3,9 +3,11 @@ config/config.env
 npm-debug.log*
 *.log
 
-# Ignore backend test scripts
-test_api.js
-testBookingAPI.js
-testBookingFlow.js
-createTestAppointments.js
-create-feedback-data.js
+# Ignore backend test scripts and unwanted files
+test*.js
+*test*.js
+*-test.js
+*debug*.js
+*summary*.js
+create-test-data.js
+fix-*.js
