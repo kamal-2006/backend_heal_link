@@ -13,7 +13,7 @@ exports.getDoctors = async (req, res, next) => {
             path: 'user',
             select: 'firstName lastName email phone'
         })
-        .select('specialization user rating consultationFee');
+        .select('specialization user rating consultationFee experience');
         
         res.status(200).json({ 
             success: true, 
@@ -40,7 +40,7 @@ exports.getDoctorsBySpecialization = async (req, res, next) => {
             path: 'user',
             select: 'firstName lastName email phone'
         })
-        .select('specialization user rating consultationFee');
+        .select('specialization user rating consultationFee experience');
         
         res.status(200).json({ 
             success: true, 

@@ -10,7 +10,9 @@ const {
   getDoctorAvailability,
   updateExpiredAppointments,
   confirmAppointment,
-  markAppointmentCompleted
+  markAppointmentCompleted,
+  getAdminAppointments,
+  getPublicAppointments
 } = require('../controllers/appointments');
 
 const { getAppointmentsNeedingFeedback } = require('../controllers/feedback');
@@ -23,6 +25,14 @@ const { protect, authorize } = require('../middleware/auth');
 router
   .route('/')
   .get(protect, getAppointments);  // Now requires authentication
+
+router
+  .route('/admin')
+  .get(protect, authorize('admin'), getAdminAppointments);
+
+router
+  .route('/public')
+  .get(getPublicAppointments);  // Public access for admin dashboard
 
 router
   .route('/book')

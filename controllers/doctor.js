@@ -325,10 +325,11 @@ exports.getDoctorDashboardData = asyncHandler(async (req, res, next) => {
     status: { $in: ['scheduled', 'confirmed'] },
   });
 
-  // 2. Total Patients
-  const totalPatients = await Patient.countDocuments({
-    primaryDoctor: doctorId,
-  });
+  // 2. Total Patients (based on appointments)
+  const appointmentsWithPatients = await Appointment.find({
+    doctor: doctorId,
+  }).distinct('patient');
+  const totalPatients = appointmentsWithPatients.length;
 
   // 3. Pending Reviews (Feedback)
   const pendingReviews = await Feedback.countDocuments({
@@ -377,5 +378,63 @@ exports.getDoctorDashboardData = asyncHandler(async (req, res, next) => {
         }
       })
     },
+  });
+});
+
+// @desc    Get doctor's patients
+// @route   GET /api/v1/doctor/patients
+// @access  Private (Doctors only)
+exports.getDoctorPatients = asyncHandler(async (req, res, next) => {
+  const doctorId = req.user.id; // User ID of the logged-in doctor
+
+  // Get all unique patients who have appointments with this doctor
+  const appointments = await Appointment.find({
+    doctor: doctorId,
+  })
+    .populate({
+      path: 'patient',
+      select: 'firstName lastName email phone patientId',
+      populate: {
+        path: 'patientInfo',
+        select: 'patientId'
+      }
+    })
+    .sort('-date');
+
+  // Extract unique patients with their latest appointment info
+  const patientsMap = new Map();
+  
+  appointments.forEach(appointment => {
+    if (appointment.patient && appointment.patient._id) {
+      const patientId = appointment.patient._id.toString();
+      
+      if (!patientsMap.has(patientId)) {
+        patientsMap.set(patientId, {
+          _id: appointment.patient._id,
+          name: `${appointment.patient.firstName || ''} ${appointment.patient.lastName || ''}`.trim(),
+          email: appointment.patient.email || '',
+          phone: appointment.patient.phone || '',
+          patientId: appointment.patient?.patientInfo?.patientId || appointment.patient.patientId || 'N/A',
+          lastAppointment: {
+            date: appointment.date,
+            reason: appointment.reason || 'N/A',
+            status: appointment.status,
+          },
+          totalAppointments: 1,
+        });
+      } else {
+        // Increment appointment count for existing patient
+        const existingPatient = patientsMap.get(patientId);
+        existingPatient.totalAppointments += 1;
+      }
+    }
+  });
+
+  const patients = Array.from(patientsMap.values());
+
+  res.status(200).json({
+    success: true,
+    count: patients.length,
+    data: patients,
   });
 });

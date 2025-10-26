@@ -9,7 +9,8 @@ const {
   getAppointmentsForFeedback,
   getMyFeedback,
   getDoctorFeedback,
-  updateFeedbackReadStatus
+  updateFeedbackReadStatus,
+  getPublicAdminFeedback
 } = require('../controllers/feedback');
 
 const router = express.Router();
@@ -46,5 +47,9 @@ router
 router
   .route('/:id/read')
   .put(protect, updateFeedbackReadStatus);
+
+router
+  .route('/public/admin')
+  .get(getPublicAdminFeedback);  // Public access for admin dashboard
 
 module.exports = router;

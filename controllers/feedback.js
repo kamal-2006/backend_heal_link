@@ -594,6 +594,20 @@ exports.getAppointmentsForFeedback = async (req, res, next) => {
         .sort('-date');
 
         console.log(`Found ${appointments.length} completed appointments`);
+        
+        // Debug: Check for appointments with missing or incomplete doctor data
+        appointments.forEach((appointment, index) => {
+            if (!appointment.doctor) {
+                console.warn(`Appointment ${appointment._id} has no doctor populated`);
+            } else if (!appointment.doctor.firstName || !appointment.doctor.lastName) {
+                console.warn(`Appointment ${appointment._id} has incomplete doctor data:`, {
+                    doctorId: appointment.doctor._id,
+                    firstName: appointment.doctor.firstName,
+                    lastName: appointment.doctor.lastName,
+                    email: appointment.doctor.email
+                });
+            }
+        });
 
         // For each appointment, get the doctor's additional info from Doctor model and check for existing feedback
         const appointmentsWithoutFeedback = [];
@@ -667,6 +681,91 @@ exports.getAppointmentsForFeedback = async (req, res, next) => {
     }
 };
 
+// @desc    Get all feedback for admin with complete details (public access)
+// @route   GET /api/v1/feedback/public/admin
+// @access  Public
+exports.getPublicAdminFeedback = async (req, res) => {
+    try {
+        console.log('=== Public Admin Feedback API ===');
+        
+        // Get all feedback with complete population
+        const feedbacks = await Feedback.find({})
+            .populate({
+                path: 'doctor',
+                select: 'firstName lastName email profilePicture phone'
+            })
+            .populate({
+                path: 'patient',
+                select: 'firstName lastName email phone profilePicture'
+            })
+            .populate({
+                path: 'appointment',
+                select: 'date reason status'
+            })
+            .sort('-createdAt');
+
+        console.log(`Found ${feedbacks.length} feedback entries`);
+
+        // Enhance feedback with additional profile information
+        const enhancedFeedbacks = [];
+        
+        for (let feedback of feedbacks) {
+            let enhancedFeedback = { ...feedback.toObject() };
+            
+            // Get additional doctor profile information if doctor exists
+            if (feedback.doctor) {
+                const Doctor = require('../models/Doctor');
+                const doctorProfile = await Doctor.findOne({ user: feedback.doctor._id })
+                    .select('specialization experience qualification consultationFee rating');
+                
+                if (doctorProfile) {
+                    enhancedFeedback.doctor = {
+                        ...feedback.doctor.toObject(),
+                        specialization: doctorProfile.specialization || 'General Medicine',
+                        experience: doctorProfile.experience || 0,
+                        qualification: doctorProfile.qualification || '',
+                        consultationFee: doctorProfile.consultationFee || 0,
+                        rating: doctorProfile.rating || 0
+                    };
+                }
+            }
+            
+            // Get additional patient profile information if patient exists
+            if (feedback.patient) {
+                const Patient = require('../models/Patient');
+                const patientProfile = await Patient.findOne({ user: feedback.patient._id })
+                    .select('patientId dateOfBirth gender bloodGroup address emergencyContact');
+                
+                if (patientProfile) {
+                    enhancedFeedback.patient = {
+                        ...feedback.patient.toObject(),
+                        patientId: patientProfile.patientId || '',
+                        dateOfBirth: patientProfile.dateOfBirth,
+                        gender: patientProfile.gender || '',
+                        bloodGroup: patientProfile.bloodGroup || '',
+                        address: patientProfile.address || '',
+                        emergencyContact: patientProfile.emergencyContact || ''
+                    };
+                }
+            }
+            
+            enhancedFeedbacks.push(enhancedFeedback);
+        }
+
+        res.status(200).json({
+            success: true,
+            count: enhancedFeedbacks.length,
+            data: enhancedFeedbacks
+        });
+    } catch (error) {
+        console.error('Public admin feedback error:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+};
+
 // Export feedback controller functions
 module.exports = {
     getFeedbacks: exports.getFeedbacks,
@@ -680,5 +779,6 @@ module.exports = {
     createMyFeedback: exports.createMyFeedback,
     getDoctorFeedback: exports.getDoctorFeedback,
     updateFeedbackReadStatus: exports.updateFeedbackReadStatus,
-    getAppointmentsNeedingFeedback: exports.getAppointmentsForFeedback
+    getAppointmentsNeedingFeedback: exports.getAppointmentsForFeedback,
+    getPublicAdminFeedback: exports.getPublicAdminFeedback
 };

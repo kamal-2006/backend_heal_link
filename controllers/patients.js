@@ -1096,3 +1096,126 @@ exports.getPatientDashboardData = async (req, res, next) => {
         });
     }
 };
+
+// @desc    Get all patients for admin
+// @route   GET /api/v1/patients/admin/patients
+// @access  Public (for admin use)
+exports.getAllPatientsForAdmin = async (req, res, next) => {
+    try {
+        const patients = await Patient.find()
+            .populate({
+                path: 'user',
+                select: 'firstName lastName email phone profilePicture dateOfBirth'
+            })
+            .select('patientId medicalHistory emergencyContact address dateOfBirth gender bloodGroup allergies chronicConditions medications insuranceInfo createdAt isActive');
+
+        res.status(200).json({
+            success: true,
+            count: patients.length,
+            data: patients
+        });
+    } catch (error) {
+        console.error('Error fetching patients for admin:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to fetch patients'
+        });
+    }
+};
+
+// @desc    Get patient details for admin
+// @route   GET /api/v1/patients/admin/patients/:id
+// @access  Public (for admin use)
+exports.getPatientDetailsForAdmin = async (req, res, next) => {
+    try {
+        const patient = await Patient.findById(req.params.id)
+            .populate({
+                path: 'user',
+                select: 'firstName lastName email phone profilePicture dateOfBirth'
+            });
+
+        if (!patient) {
+            return res.status(404).json({
+                success: false,
+                error: 'Patient not found'
+            });
+        }
+
+        res.status(200).json({
+            success: true,
+            data: patient
+        });
+    } catch (error) {
+        console.error('Error fetching patient details for admin:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to fetch patient details'
+        });
+    }
+};
+
+// @desc    Update patient for admin
+// @route   PUT /api/v1/patients/admin/patients/:id
+// @access  Public (for admin use)
+exports.updatePatientForAdmin = async (req, res, next) => {
+    try {
+        const patient = await Patient.findByIdAndUpdate(
+            req.params.id,
+            req.body,
+            {
+                new: true,
+                runValidators: true
+            }
+        ).populate({
+            path: 'user',
+            select: 'firstName lastName email phone profilePicture'
+        });
+
+        if (!patient) {
+            return res.status(404).json({
+                success: false,
+                error: 'Patient not found'
+            });
+        }
+
+        res.status(200).json({
+            success: true,
+            data: patient
+        });
+    } catch (error) {
+        console.error('Error updating patient for admin:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to update patient'
+        });
+    }
+};
+
+// @desc    Delete patient for admin
+// @route   DELETE /api/v1/patients/admin/patients/:id
+// @access  Public (for admin use)
+exports.deletePatientForAdmin = async (req, res, next) => {
+    try {
+        const patient = await Patient.findById(req.params.id);
+
+        if (!patient) {
+            return res.status(404).json({
+                success: false,
+                error: 'Patient not found'
+            });
+        }
+
+        await patient.deleteOne();
+
+        res.status(200).json({
+            success: true,
+            message: 'Patient deleted successfully'
+        });
+    } catch (error) {
+        console.error('Error deleting patient for admin:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to delete patient'
+        });
+    }
+};

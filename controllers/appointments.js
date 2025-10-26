@@ -80,7 +80,7 @@ exports.getAppointments = async (req, res, next) => {
     const query = Appointment.find(filter)
       .populate({
         path: "doctor",
-        select: "firstName lastName email profilePicture",
+        select: "firstName lastName email profilePicture"
       })
       .populate({
         path: "patient",
@@ -197,7 +197,7 @@ exports.getPatientAppointments = async (req, res) => {
     const appointments = await Appointment.find({ patient: req.params.id })
       .populate({
         path: "doctor",
-        select: "firstName lastName email",
+        select: "firstName lastName email"
       })
       .sort({ date: -1 });
 
@@ -222,7 +222,7 @@ exports.getAppointment = async (req, res, next) => {
     const appointment = await Appointment.findById(req.params.id)
       .populate({
         path: "doctor",
-        select: "firstName lastName email",
+        select: "firstName lastName email"
       })
       .populate({
         path: "patient",
@@ -341,7 +341,7 @@ exports.bookAppointment = async (req, res, next) => {
       const populatedAppointment = await Appointment.findById(appointment._id)
         .populate({
           path: "doctor",
-          select: "firstName lastName email",
+          select: "firstName lastName email"
         })
         .populate({
           path: "patient",
@@ -432,7 +432,7 @@ exports.bookAppointment = async (req, res, next) => {
       const populatedAppointment = await Appointment.findById(appointment._id)
         .populate({
           path: "doctor",
-          select: "firstName lastName email",
+          select: "firstName lastName email"
         })
         .populate({
           path: "patient",
@@ -834,6 +834,123 @@ exports.markAppointmentCompleted = async (req, res, next) => {
     res.status(400).json({
       success: false,
       error: error.message
+    });
+  }
+};
+
+// @desc    Get all appointments for admin with complete details
+// @route   GET /api/v1/appointments/admin
+// @access  Admin only
+exports.getAdminAppointments = async (req, res) => {
+  try {
+    console.log('=== Admin Appointments API ===');
+    console.log('User Role:', req.user.role);
+    
+    // Check if user is admin
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied. Admin privileges required.'
+      });
+    }
+
+    return await getAllAppointmentsWithDetails(req, res);
+  } catch (error) {
+    console.error('Admin appointments error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
+  }
+};
+
+// @desc    Get all appointments with complete details (public access for admin dashboard)
+// @route   GET /api/v1/appointments/public
+// @access  Public
+exports.getPublicAppointments = async (req, res) => {
+  try {
+    console.log('=== Public Appointments API ===');
+    return await getAllAppointmentsWithDetails(req, res);
+  } catch (error) {
+    console.error('Public appointments error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
+  }
+};
+
+// Helper function to get all appointments with enhanced details
+const getAllAppointmentsWithDetails = async (req, res) => {
+  try {
+    // Get all appointments with complete population
+    const appointments = await Appointment.find({})
+      .populate({
+        path: "doctor",
+        select: "firstName lastName email profilePicture phone"
+      })
+      .populate({
+        path: "patient", 
+        select: "firstName lastName email phone profilePicture"
+      })
+      .sort({ date: -1 });
+
+    console.log(`Found ${appointments.length} appointments`);
+
+    // Enhance appointments with doctor and patient profile information
+    const enhancedAppointments = [];
+    
+    for (let appointment of appointments) {
+      let enhancedAppointment = { ...appointment.toObject() };
+      
+      // Get doctor profile information if doctor exists
+      if (appointment.doctor) {
+        const doctorProfile = await Doctor.findOne({ user: appointment.doctor._id })
+          .select('specialization experience qualification consultationFee rating');
+        
+        if (doctorProfile) {
+          enhancedAppointment.doctor = {
+            ...appointment.doctor.toObject(),
+            specialization: doctorProfile.specialization || 'General Medicine',
+            experience: doctorProfile.experience || 0,
+            qualification: doctorProfile.qualification || '',
+            consultationFee: doctorProfile.consultationFee || 0,
+            rating: doctorProfile.rating || 0
+          };
+        }
+      }
+      
+      // Get patient profile information if patient exists
+      if (appointment.patient) {
+        const patientProfile = await Patient.findOne({ user: appointment.patient._id })
+          .select('patientId dateOfBirth gender bloodGroup address emergencyContact');
+        
+        if (patientProfile) {
+          enhancedAppointment.patient = {
+            ...appointment.patient.toObject(),
+            patientId: patientProfile.patientId || '',
+            dateOfBirth: patientProfile.dateOfBirth,
+            gender: patientProfile.gender || '',
+            bloodGroup: patientProfile.bloodGroup || '',
+            address: patientProfile.address || '',
+            emergencyContact: patientProfile.emergencyContact || ''
+          };
+        }
+      }
+      
+      enhancedAppointments.push(enhancedAppointment);
+    }
+
+    res.status(200).json({
+      success: true,
+      count: enhancedAppointments.length,
+      data: enhancedAppointments,
+    });
+  } catch (error) {
+    console.error('Appointments details error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
     });
   }
 };

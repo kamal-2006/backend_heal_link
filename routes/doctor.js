@@ -6,6 +6,7 @@ const {
   getDoctor,
   getDoctorAppointments,
   getDoctorDashboardData,
+  getDoctorPatients,
 } = require("../controllers/doctor");
 const { protect, authorize } = require("../middleware/auth");
 const { validateDoctorProfileUpdate, validateTimeSlots } = require("../middleware/doctorValidation");
@@ -48,6 +49,14 @@ router.get(
   protect,
   authorize("doctor"),
   getDoctorDashboardData
+);
+
+// Doctor patients route
+router.get(
+  "/patients",
+  protect,
+  authorize("doctor"),
+  getDoctorPatients
 );
 
 // Doctor appointments route - Allow both doctors and admins to access

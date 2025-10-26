@@ -18,6 +18,9 @@ app.use(
     origin: [
       "http://localhost:3000",
       "http://localhost:3001",
+      "http://localhost:3002",
+      "http://localhost:3003",
+      "http://localhost:3004",
       process.env.FRONTEND_ORIGIN,
     ].filter(Boolean),
     credentials: true,
@@ -35,6 +38,7 @@ app.use("/api/v1/doctors", require("./routes/doctors"));
 app.use("/api/v1/prescriptions", require("./routes/prescriptions"));
 app.use("/api/v1/feedback", require("./routes/feedback"));
 app.use("/api/v1/records", require("./routes/medicalRecords"));
+app.use("/api/v1/nurse/admin", require("./routes/adminNurse"));
 app.use("/api/v1/medications", require("./routes/medications"));
 app.use("/api/v1/nurse", require("./routes/nurse"));
 
