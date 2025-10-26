@@ -8,14 +8,40 @@ const {
   getDoctorDashboardData,
 } = require("../controllers/doctor");
 const { protect, authorize } = require("../middleware/auth");
+const { validateDoctorProfileUpdate, validateTimeSlots } = require("../middleware/doctorValidation");
 
 const router = express.Router();
 
-// Doctor profile routes
+// Doctor profile routes with validation
 router
   .route("/me")
   .get(protect, authorize("doctor"), getDoctorProfile)
-  .put(protect, authorize("doctor"), updateDoctorProfile);
+  .put(
+    protect, 
+    authorize("doctor"), 
+    validateDoctorProfileUpdate,
+    validateTimeSlots,
+    updateDoctorProfile
+  );
+
+// Specific profile section updates
+router.put(
+  "/me/settings",
+  protect,
+  authorize("doctor"),
+  validateDoctorProfileUpdate,
+  validateTimeSlots,
+  updateDoctorProfile
+);
+
+router.put(
+  "/me/availability",
+  protect,
+  authorize("doctor"),
+  validateDoctorProfileUpdate,
+  validateTimeSlots,
+  updateDoctorProfile
+);
 
 router.get(
   "/dashboard-data",

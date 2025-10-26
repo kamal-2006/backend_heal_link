@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const {
     getNurseProfile,
+    updateNurseProfile,
     getAssignedPatients,
     getPatientDetails,
     uploadPatientReport,
@@ -26,6 +27,7 @@ router.use(authorize('nurse'));
 
 // Nurse profile and dashboard
 router.get('/profile', getNurseProfile);
+router.put('/profile', updateNurseProfile);
 router.get('/dashboard', getNurseDashboard);
 router.get('/dashboard-data', getNurseDashboard); // Alias for consistency with other dashboards
 

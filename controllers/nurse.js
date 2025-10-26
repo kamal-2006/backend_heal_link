@@ -3,6 +3,7 @@ const Patient = require('../models/Patient');
 const MedicalRecord = require('../models/MedicalRecord');
 const Appointment = require('../models/Appointment');
 const Medication = require('../models/Medication');
+const User = require('../models/User');
 const ErrorResponse = require('../utils/errorResponse');
 
 // @desc    Get nurse profile
@@ -10,7 +11,7 @@ const ErrorResponse = require('../utils/errorResponse');
 // @access  Private/Nurse
 exports.getNurseProfile = async (req, res, next) => {
     try {
-        const nurse = await Nurse.findOne({ user: req.user.id })
+        let nurse = await Nurse.findOne({ user: req.user.id })
             .populate({
                 path: 'assignedPatients',
                 populate: {
@@ -19,11 +20,39 @@ exports.getNurseProfile = async (req, res, next) => {
                 }
             });
 
+        // If no nurse profile exists, create a basic one with default values
         if (!nurse) {
-            return res.status(404).json({
-                success: false,
-                error: 'Nurse profile not found'
+            console.log('Creating new nurse profile for user:', req.user.id);
+            nurse = new Nurse({
+                user: req.user.id,
+                licenseNumber: 'TEMP-' + Math.floor(10000 + Math.random() * 90000), // Temporary license until updated
+                department: 'General',
+                shift: 'Morning',
+                qualification: 'Not Provided',
+                experience: 0,
+                specialization: 'Not Provided',
+                assignedPatients: [],
+                isActive: true
             });
+            
+            try {
+                await nurse.save();
+                // Populate the user data after saving
+                nurse = await Nurse.findById(nurse._id)
+                    .populate({
+                        path: 'assignedPatients',
+                        populate: {
+                            path: 'user',
+                            select: 'firstName lastName email phone'
+                        }
+                    });
+            } catch (saveError) {
+                console.error('Error creating nurse profile:', saveError);
+                return res.status(500).json({
+                    success: false,
+                    error: `Failed to create nurse profile: ${saveError.message}`
+                });
+            }
         }
 
         res.status(200).json({
@@ -32,6 +61,90 @@ exports.getNurseProfile = async (req, res, next) => {
         });
     } catch (error) {
         console.error('Get nurse profile error:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Server Error'
+        });
+    }
+};
+
+// @desc    Update nurse profile
+// @route   PUT /api/v1/nurse/profile
+// @access  Private/Nurse
+exports.updateNurseProfile = async (req, res, next) => {
+    try {
+        const {
+            firstName,
+            lastName,
+            email,
+            phone,
+            licenseNumber,
+            department,
+            shift,
+            qualification,
+            experience,
+            specialization
+        } = req.body;
+
+        // First update user information
+        const userUpdateData = {};
+        if (firstName) userUpdateData.firstName = firstName;
+        if (lastName) userUpdateData.lastName = lastName;
+        if (email) userUpdateData.email = email;
+        if (phone) userUpdateData.phone = phone;
+
+        if (Object.keys(userUpdateData).length > 0) {
+            await User.findByIdAndUpdate(req.user.id, userUpdateData);
+        }
+
+        // Then update nurse-specific information
+        const nurseUpdateData = {};
+        if (licenseNumber !== undefined) nurseUpdateData.licenseNumber = licenseNumber;
+        if (department) nurseUpdateData.department = department;
+        if (shift) nurseUpdateData.shift = shift;
+        if (qualification !== undefined) nurseUpdateData.qualification = qualification;
+        if (experience !== undefined) nurseUpdateData.experience = parseInt(experience) || 0;
+        if (specialization !== undefined) nurseUpdateData.specialization = specialization;
+
+        let nurse = await Nurse.findOne({ user: req.user.id });
+        
+        if (!nurse) {
+            // Create new nurse profile if doesn't exist
+            nurse = new Nurse({
+                user: req.user.id,
+                licenseNumber: licenseNumber || '',
+                department: department || 'General',
+                shift: shift || 'Morning',
+                qualification: qualification || '',
+                experience: parseInt(experience) || 0,
+                specialization: specialization || '',
+                assignedPatients: [],
+                isActive: true
+            });
+            await nurse.save();
+        } else {
+            // Update existing nurse profile
+            if (Object.keys(nurseUpdateData).length > 0) {
+                await nurse.updateOne(nurseUpdateData);
+            }
+        }
+
+        // Fetch updated nurse profile with populated data
+        const updatedNurse = await Nurse.findOne({ user: req.user.id })
+            .populate({
+                path: 'assignedPatients',
+                populate: {
+                    path: 'user',
+                    select: 'firstName lastName email phone'
+                }
+            });
+
+        res.status(200).json({
+            success: true,
+            data: updatedNurse
+        });
+    } catch (error) {
+        console.error('Update nurse profile error:', error);
         res.status(500).json({
             success: false,
             error: 'Server Error'

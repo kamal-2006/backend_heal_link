@@ -48,6 +48,10 @@ const updateDoctorAvailability = async (doctorId) => {
 // @access  Private (Role-based filtering)
 exports.getAppointments = async (req, res, next) => {
   try {
+    console.log('=== Get Appointments API ===');
+    console.log('User ID:', req.user.id);
+    console.log('User Role:', req.user.role);
+    
     let filter = {};
     
     // Filter appointments based on user role
@@ -63,9 +67,11 @@ exports.getAppointments = async (req, res, next) => {
         }
         // Appointment.patient references User, so use the logged-in user id
         filter.patient = req.user.id;
+        console.log('Patient filter applied:', filter);
       } else if (req.user.role === 'doctor') {
         // Doctor can only see their appointments
         filter.doctor = req.user.id;
+        console.log('Doctor filter applied:', filter);
       }
       // Admin sees all appointments (no filter)
     }
@@ -74,11 +80,11 @@ exports.getAppointments = async (req, res, next) => {
     const query = Appointment.find(filter)
       .populate({
         path: "doctor",
-        select: "firstName lastName email",
+        select: "firstName lastName email profilePicture",
       })
       .populate({
         path: "patient",
-        select: "firstName lastName email phone",
+        select: "firstName lastName email phone profilePicture",
       });
 
     // Add pagination
@@ -91,6 +97,56 @@ exports.getAppointments = async (req, res, next) => {
     query.skip(startIndex).limit(limit).sort({ date: -1 });
 
     const appointments = await query;
+    console.log(`Found ${appointments.length} appointments`);
+
+    // Enhance appointments with doctor profile information
+    const enhancedAppointments = [];
+    
+    for (let appointment of appointments) {
+      let enhancedAppointment = { ...appointment.toObject() };
+      
+      console.log(`Processing appointment ${appointment._id}:`);
+      console.log(`- Doctor: ${appointment.doctor ? appointment.doctor.firstName + ' ' + appointment.doctor.lastName : 'No doctor'}`);
+      
+      // If this appointment has a doctor, get additional doctor profile info
+      if (appointment.doctor) {
+        const doctorProfile = await Doctor.findOne({ user: appointment.doctor._id })
+          .select('specialization experience qualification consultationFee');
+        
+        console.log(`- Doctor profile found: ${doctorProfile ? 'Yes' : 'No'}`);
+        if (doctorProfile) {
+          console.log(`  - Specialization: ${doctorProfile.specialization}`);
+        }
+        
+        if (doctorProfile) {
+          enhancedAppointment.doctor = {
+            ...appointment.doctor.toObject(),
+            specialization: doctorProfile.specialization || 'General Medicine',
+            experience: doctorProfile.experience || 0,
+            qualification: doctorProfile.qualification || '',
+            consultationFee: doctorProfile.consultationFee || 0
+          };
+        }
+      }
+      
+      // If this appointment has a patient, get additional patient profile info
+      if (appointment.patient && req.user.role !== 'patient') {
+        const patientProfile = await Patient.findOne({ user: appointment.patient._id })
+          .select('patientId dateOfBirth gender bloodType');
+        
+        if (patientProfile) {
+          enhancedAppointment.patient = {
+            ...appointment.patient.toObject(),
+            patientId: patientProfile.patientId || '',
+            dateOfBirth: patientProfile.dateOfBirth,
+            gender: patientProfile.gender || '',
+            bloodType: patientProfile.bloodType || ''
+          };
+        }
+      }
+      
+      enhancedAppointments.push(enhancedAppointment);
+    }
 
     // Pagination result
     const pagination = {};
@@ -111,9 +167,9 @@ exports.getAppointments = async (req, res, next) => {
 
     res.status(200).json({
       success: true,
-      count: appointments.length,
+      count: enhancedAppointments.length,
       pagination,
-      data: appointments,
+      data: enhancedAppointments,
     });
   } catch (error) {
     console.error('Get appointments error:', error);

@@ -575,6 +575,9 @@ exports.getPatientFeedbackHistory = async (req, res, next) => {
 // @access  Private (Patient only)
 exports.getAppointmentsForFeedback = async (req, res, next) => {
     try {
+        console.log('=== Get Appointments For Feedback ===');
+        console.log('Patient ID:', req.user.id);
+        
         // First, get completed appointments for the patient
         const appointments = await Appointment.find({
             patient: req.user.id,
@@ -582,39 +585,69 @@ exports.getAppointmentsForFeedback = async (req, res, next) => {
         })
         .populate({
             path: 'doctor',
-            select: 'firstName lastName email profilePicture'
+            select: 'firstName lastName email profilePicture role'
+        })
+        .populate({
+            path: 'patient', 
+            select: 'firstName lastName email'
         })
         .sort('-date');
+
+        console.log(`Found ${appointments.length} completed appointments`);
 
         // For each appointment, get the doctor's additional info from Doctor model and check for existing feedback
         const appointmentsWithoutFeedback = [];
         const Doctor = require('../models/Doctor');
         
         for (let appointment of appointments) {
+            console.log(`Processing appointment ${appointment._id}:`);
+            console.log(`- Date: ${appointment.date}`);
+            console.log(`- Doctor User: ${appointment.doctor ? appointment.doctor.firstName + ' ' + appointment.doctor.lastName : 'No doctor'}`);
+            
             // Check if feedback already exists for this appointment
             const existingFeedback = await Feedback.findOne({ appointment: appointment._id });
             
             if (!existingFeedback) {
-                // Get additional doctor information
-                const doctorInfo = await Doctor.findOne({ user: appointment.doctor._id })
-                    .select('specialization experience qualification');
+                console.log(`- No existing feedback found`);
+                
+                // Get additional doctor information from Doctor model
+                let doctorInfo = null;
+                if (appointment.doctor) {
+                    doctorInfo = await Doctor.findOne({ user: appointment.doctor._id })
+                        .select('specialization experience qualification consultationFee');
+                    
+                    console.log(`- Doctor Info: ${doctorInfo ? 'Found' : 'Not found'}`);
+                    if (doctorInfo) {
+                        console.log(`  - Specialization: ${doctorInfo.specialization}`);
+                        console.log(`  - Experience: ${doctorInfo.experience}`);
+                    }
+                }
                 
                 // Create enhanced appointment object
                 const enhancedAppointment = {
                     ...appointment.toObject(),
-                    doctor: {
-                        ...appointment.doctor.toObject(),
+                    doctor: appointment.doctor ? {
+                        _id: appointment.doctor._id,
+                        firstName: appointment.doctor.firstName,
+                        lastName: appointment.doctor.lastName,
+                        email: appointment.doctor.email,
+                        profilePicture: appointment.doctor.profilePicture,
+                        // Add doctor profile information
                         specialization: doctorInfo?.specialization || 'General Medicine',
                         experience: doctorInfo?.experience || 0,
-                        qualification: doctorInfo?.qualification || ''
-                    }
+                        qualification: doctorInfo?.qualification || '',
+                        consultationFee: doctorInfo?.consultationFee || 0
+                    } : null
                 };
                 
                 appointmentsWithoutFeedback.push(enhancedAppointment);
+                console.log(`- Added to feedback list`);
+            } else {
+                console.log(`- Feedback already exists, skipping`);
             }
         }
 
-        console.log(`Found ${appointmentsWithoutFeedback.length} appointments needing feedback for patient ${req.user.id}`);
+        console.log(`Returning ${appointmentsWithoutFeedback.length} appointments needing feedback`);
         
         res.status(200).json({
             success: true,
@@ -623,9 +656,13 @@ exports.getAppointmentsForFeedback = async (req, res, next) => {
         });
     } catch (error) {
         console.error('Error getting appointments for feedback:', error);
+        console.error('Error details:', error.message);
+        console.error('Stack trace:', error.stack);
+        
         res.status(500).json({
             success: false,
-            error: 'Server Error'
+            error: 'Failed to fetch appointments for feedback',
+            message: error.message
         });
     }
 };

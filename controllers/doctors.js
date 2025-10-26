@@ -104,7 +104,7 @@ exports.getAvailableDoctors = async (req, res, next) => {
                 const matchingDoctors = await Doctor.find(doctorFilterQuery).populate({
                     path: 'user',
                     select: 'firstName lastName email phone'
-                }).select('specialization user rating consultationFee');
+                }).select('specialization user rating consultationFee experience');
         
                 // If no startTime or endTime is specified, return all doctors with the specialization
                 if (!startTime || !endTime) {

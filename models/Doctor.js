@@ -27,6 +27,7 @@ const DoctorSchema = new mongoose.Schema({
   specialization: {
     type: String,
     required: [true, 'Please add a specialization'],
+    default: 'General Medicine',
     enum: [
       'General Medicine',
       'Cardiology',
@@ -53,7 +54,9 @@ const DoctorSchema = new mongoose.Schema({
   },
   experience: {
     type: Number,
-    required: [true, 'Please add years of experience']
+    required: [true, 'Please add years of experience'],
+    default: 0,
+    min: [0, 'Experience cannot be negative']
   },
   qualification: {
     type: String,
@@ -66,7 +69,8 @@ const DoctorSchema = new mongoose.Schema({
   },
   consultationFee: {
     type: Number,
-    default: null
+    default: 0,
+    min: [0, 'Consultation fee cannot be negative']
   },
   availability: {
     days: [{
@@ -81,7 +85,11 @@ const DoctorSchema = new mongoose.Schema({
         type: mongoose.Schema.ObjectId,
         ref: 'Appointment'
       }
-    }]
+    }],
+    default: {
+      days: [],
+      timeSlots: []
+    }
   },
   hospital: {
     name: String,
