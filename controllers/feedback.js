@@ -629,3 +629,19 @@ exports.getAppointmentsForFeedback = async (req, res, next) => {
         });
     }
 };
+
+// Export feedback controller functions
+module.exports = {
+    getFeedbacks: exports.getFeedbacks,
+    getFeedback: exports.getFeedback,
+    createFeedback: exports.createFeedback,
+    updateFeedback: exports.updateFeedback,
+    deleteFeedback: exports.deleteFeedback,
+    getPatientFeedbackHistory: exports.getPatientFeedbackHistory,
+    getAppointmentsForFeedback: exports.getAppointmentsForFeedback,
+    getMyFeedback: exports.getMyFeedback,
+    createMyFeedback: exports.createMyFeedback,
+    getDoctorFeedback: exports.getDoctorFeedback,
+    updateFeedbackReadStatus: exports.updateFeedbackReadStatus,
+    getAppointmentsNeedingFeedback: exports.getAppointmentsForFeedback
+};
