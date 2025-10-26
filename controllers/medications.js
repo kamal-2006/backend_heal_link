@@ -3,6 +3,7 @@ const asyncHandler = require('../middleware/async');
 const Medication = require('../models/Medication');
 const Patient = require('../models/Patient');
 const User = require('../models/User');
+const NotificationService = require('../utils/notificationService');
 
 // @desc    Get all medications
 // @route   GET /api/v1/medications
@@ -171,6 +172,28 @@ exports.createMedication = asyncHandler(async (req, res, next) => {
 
   const medication = await Medication.create(req.body);
 
+  // Send notification to patient
+  try {
+    const patientDoc = await Patient.findById(req.params.patientId).populate('user');
+    const doctorUser = await User.findById(req.user.id);
+    
+    if (patientDoc && patientDoc.user && doctorUser) {
+      await NotificationService.sendMedicationAddedNotification(
+        medication,
+        {
+          _id: patientDoc.user._id,
+          name: `${patientDoc.user.firstName} ${patientDoc.user.lastName}`
+        },
+        {
+          _id: req.user.id,
+          name: `${doctorUser.firstName} ${doctorUser.lastName}`
+        }
+      );
+    }
+  } catch (notifError) {
+    console.error('Failed to send medication notification:', notifError);
+  }
+
   res.status(201).json({
     success: true,
     data: medication
@@ -192,10 +215,44 @@ exports.updateMedication = asyncHandler(async (req, res, next) => {
     return next(new ErrorResponse(`User ${req.user.id} is not authorized to update this medication`, 401));
   }
 
+  const oldMedication = { ...medication.toObject() };
+  
   medication = await Medication.findByIdAndUpdate(req.params.id, req.body, {
     new: true,
     runValidators: true
-  });
+  }).populate('patient');
+
+  // Send notification to patient if significant changes
+  try {
+    const patientDoc = await Patient.findById(medication.patient._id).populate('user');
+    const doctorUser = await User.findById(req.user.id);
+    
+    if (patientDoc && patientDoc.user && doctorUser) {
+      let updateType = 'modified';
+      
+      // Determine update type
+      if (req.body.status === 'cancelled' || req.body.status === 'completed') {
+        updateType = 'stopped';
+      } else if (req.body.dosage && req.body.dosage !== oldMedication.dosage) {
+        updateType = 'dosage_changed';
+      }
+      
+      await NotificationService.sendMedicationUpdatedNotification(
+        medication,
+        {
+          _id: patientDoc.user._id,
+          name: `${patientDoc.user.firstName} ${patientDoc.user.lastName}`
+        },
+        {
+          _id: req.user.id,
+          name: `${doctorUser.firstName} ${doctorUser.lastName}`
+        },
+        updateType
+      );
+    }
+  } catch (notifError) {
+    console.error('Failed to send medication update notification:', notifError);
+  }
 
   res.status(200).json({
     success: true,

@@ -3,6 +3,7 @@ const User = require("../models/User");
 const Doctor = require("../models/Doctor");
 const Patient = require("../models/Patient");
 const { bulkSwapAppointments } = require("./bulkSwap");
+const NotificationService = require("../utils/notificationService");
 
 // Export the bulkSwapAppointments function
 exports.bulkSwapAppointments = bulkSwapAppointments;
@@ -351,6 +352,18 @@ exports.bookAppointment = async (req, res, next) => {
       // Update doctor availability with new appointment
       await updateDoctorAvailability(doctor._id);
 
+      // Send notification
+      try {
+        const patientUser = await User.findById(patientUserId);
+        await NotificationService.sendAppointmentBookedNotification(
+          populatedAppointment,
+          { _id: doctorUserId, name: `${doctor.user.firstName} ${doctor.user.lastName}` },
+          { _id: patientUserId, name: `${patientUser.firstName} ${patientUser.lastName}` }
+        );
+      } catch (notifError) {
+        console.error('Error sending notification:', notifError);
+      }
+
       res.status(201).json({
         success: true,
         data: populatedAppointment,
@@ -441,6 +454,17 @@ exports.bookAppointment = async (req, res, next) => {
 
       // Update doctor availability with new appointment
       await updateDoctorAvailability(doctor._id);
+
+      // Send notification
+      try {
+        await NotificationService.sendAppointmentBookedNotification(
+          populatedAppointment,
+          { _id: doctor.user._id, name: `${doctor.user.firstName} ${doctor.user.lastName}` },
+          { _id: req.user.id, name: `${req.user.firstName} ${req.user.lastName}` }
+        );
+      } catch (notifError) {
+        console.error('Error sending notification:', notifError);
+      }
 
       res.status(201).json({
         success: true,
@@ -825,6 +849,28 @@ exports.markAppointmentCompleted = async (req, res, next) => {
       path: 'patient',
       select: 'firstName lastName email'
     });
+
+    // Send feedback request notification to patient
+    try {
+      const Patient = require('../models/Patient');
+      const patientDoc = await Patient.findById(appointment.patient._id).populate('user');
+      
+      if (patientDoc && patientDoc.user) {
+        await NotificationService.sendFeedbackRequestNotification(
+          appointment,
+          {
+            _id: patientDoc.user._id,
+            name: `${patientDoc.user.firstName} ${patientDoc.user.lastName}`
+          },
+          {
+            _id: appointment.doctor._id,
+            name: `${appointment.doctor.firstName} ${appointment.doctor.lastName}`
+          }
+        );
+      }
+    } catch (notifError) {
+      console.error('Failed to send feedback request notification:', notifError);
+    }
 
     res.status(200).json({
       success: true,

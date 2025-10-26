@@ -1,8 +1,10 @@
 const Appointment = require("../models/Appointment");
 const Doctor = require("../models/Doctor");
+const Patient = require("../models/Patient");
 const asyncHandler = require("../middleware/async");
 const ErrorResponse = require("../utils/errorResponse");
 const { updateDoctorAvailability } = require("../utils/doctorUtils");
+const NotificationService = require("../utils/notificationService");
 
 // @desc    Bulk swap appointments from selected appointments to another date
 // @route   POST /api/v1/appointments/bulk-swap
@@ -59,11 +61,37 @@ exports.bulkSwapAppointments = asyncHandler(async (req, res, next) => {
     }
 
     try {
+      const originalDoctor = await Doctor.findById(appointment.doctor).populate('user', 'firstName lastName');
+      
       const updatedAppointment = await Appointment.findByIdAndUpdate(
         appointment._id,
         { date: newDate, doctor: targetDoctorUserId },
         { new: true, runValidators: true }
       ).populate('patient', 'firstName lastName');
+
+      // Send doctor swap notification to patient
+      try {
+        const patientDoc = await Patient.findById(updatedAppointment.patient._id).populate('user');
+        if (patientDoc && patientDoc.user) {
+          await NotificationService.sendDoctorSwapNotification(
+            {
+              _id: patientDoc.user._id,
+              name: `${patientDoc.user.firstName} ${patientDoc.user.lastName}`
+            },
+            {
+              _id: originalDoctor._id,
+              name: `${originalDoctor.user.firstName} ${originalDoctor.user.lastName}`
+            },
+            {
+              _id: targetDoctor._id,
+              name: targetDoctorName
+            },
+            updatedAppointment
+          );
+        }
+      } catch (notifError) {
+        console.error('Failed to send doctor swap notification:', notifError);
+      }
 
       swappedAppointments.push({
         _id: updatedAppointment._id,

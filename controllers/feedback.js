@@ -1,6 +1,7 @@
 ﻿const Feedback = require('../models/Feedback');
 const User = require('../models/User');
 const Appointment = require('../models/Appointment');
+const NotificationService = require('../utils/notificationService');
 
 // @desc    Get all feedback
 // @route   GET /api/v1/feedback
@@ -206,6 +207,17 @@ exports.createFeedback = async (req, res, next) => {
         };
 
         console.log(`Feedback created for appointment ${req.body.appointment} by patient ${req.user.id}`);
+
+        // Send notification
+        try {
+            await NotificationService.sendFeedbackSubmittedNotification(
+                feedback,
+                { _id: populatedFeedback.doctor._id, name: `${populatedFeedback.doctor.firstName} ${populatedFeedback.doctor.lastName}` },
+                { _id: req.user.id, name: `${req.user.firstName} ${req.user.lastName}` }
+            );
+        } catch (notifError) {
+            console.error('Error sending notification:', notifError);
+        }
 
         res.status(201).json({
             success: true,

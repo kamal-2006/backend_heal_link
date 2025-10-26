@@ -3,6 +3,7 @@ const asyncHandler = require('../middleware/async');
 const MedicalRecord = require('../models/MedicalRecord');
 const Patient = require('../models/Patient');
 const User = require('../models/User');
+const NotificationService = require('../utils/notificationService');
 const path = require('path');
 
 // @desc    Get all medical records
@@ -172,6 +173,28 @@ exports.createMedicalRecord = asyncHandler(async (req, res, next) => {
   req.body.doctor = req.user.id;
 
   const record = await MedicalRecord.create(req.body);
+
+  // Send notification to patient
+  try {
+    const patientDoc = await Patient.findById(req.params.patientId).populate('user');
+    const doctorUser = await User.findById(req.user.id);
+    
+    if (patientDoc && patientDoc.user && doctorUser) {
+      await NotificationService.sendMedicalRecordUploadedNotification(
+        record,
+        {
+          _id: patientDoc.user._id,
+          name: `${patientDoc.user.firstName} ${patientDoc.user.lastName}`
+        },
+        {
+          _id: req.user.id,
+          name: `${doctorUser.firstName} ${doctorUser.lastName}`
+        }
+      );
+    }
+  } catch (notifError) {
+    console.error('Failed to send medical record notification:', notifError);
+  }
 
   res.status(201).json({
     success: true,
