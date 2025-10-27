@@ -47,7 +47,7 @@ const createNurse = async () => {
     console.log('👤 Name: Nurse User');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log('\n🚀 You can now login to the nurse dashboard!');
-    console.log('   URL: http://localhost:3001/login');
+    console.log(`   URL: ${process.env.FRONTEND_ORIGIN}/login`);
     console.log('   Select "Nurse" role and use the credentials above.');
     
     // Verify the password works

@@ -13,7 +13,7 @@ class SMSService {
     this.fromNumber = process.env.TWILIO_PHONE_NUMBER;
     
     // TEST MODE: Send all SMS to this number for testing
-    this.testPhoneNumber = '6369026251';
+    this.testPhoneNumber = process.env.TWILIO_TEST_PHONE_NUMBER || '6369026251';
     
     // Only initialize Twilio if credentials are provided
     if (this.accountSid && this.authToken && this.fromNumber) {

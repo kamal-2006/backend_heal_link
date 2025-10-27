@@ -44,7 +44,7 @@ const createAdmin = async () => {
     console.log('👤 Name:', admin.firstName, admin.lastName);
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log('\n🚀 You can now login to the admin dashboard!');
-    console.log('   URL: http://localhost:3000/login');
+    console.log(`   URL: ${process.env.FRONTEND_ORIGIN}/login`);
     console.log('   Select "Admin" role and use the credentials above.');
     
     process.exit(0);
