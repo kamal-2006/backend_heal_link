@@ -15,18 +15,17 @@ app.use((req, res, next) => {
 });
 
 // CORS: allow explicit origins only ("*" with credentials breaks browsers)
-const allowedOrigins = [
-  process.env.FRONTEND_ORIGIN || "http://localhost:3001",
-  process.env.FRONTEND_ORIGIN_ALT1,
-  process.env.FRONTEND_ORIGIN_ALT2,
-  process.env.FRONTEND_ORIGIN_ALT3,
-].filter(Boolean);
+// const allowedOrigins = [
+//   process.env.FRONTEND_ORIGIN || "http://localhost:3001",
+//   process.env.FRONTEND_ORIGIN_ALT1,
+//   process.env.FRONTEND_ORIGIN_ALT2,
+//   process.env.FRONTEND_ORIGIN_ALT3,
+// ].filter(Boolean);
 
-console.log("FRONTEND_ORIGIN from env:", process.env.FRONTEND_ORIGIN);
+// console.log("FRONTEND_ORIGIN from env:", process.env.FRONTEND_ORIGIN);
 app.use(
   cors({
-    origin: allowedOrigins,
-    credentials: true,
+    origin: "*",
     methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE", "OPTIONS"],
     allowedHeaders: [
       "Content-Type",

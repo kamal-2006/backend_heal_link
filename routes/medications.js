@@ -23,13 +23,13 @@ const {
 // Base routes
 router
   .route('/')
-  .get(protect, authorize('admin', 'doctor', 'patient'), getMedications)
-  .post(protect, authorize('admin', 'doctor'), createMedication);
+  .get(protect, authorize('admin', 'doctor', 'patient', 'nurse'), getMedications)
+  .post(protect, authorize('admin', 'doctor', 'nurse'), createMedication);
 
 // Active medications route
 router
   .route('/active')
-  .get(protect, authorize('admin', 'doctor', 'patient'), getActiveMedications);
+  .get(protect, authorize('admin', 'doctor', 'patient', 'nurse'), getActiveMedications);
 
 // Patient-specific routes
 router

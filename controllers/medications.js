@@ -22,7 +22,7 @@ exports.getMedications = asyncHandler(async (req, res, next) => {
     }
 
     // Check if user is authorized to view this patient's medications
-    if (req.user.role !== 'admin' && req.user.role !== 'doctor' && 
+    if (req.user.role !== 'admin' && req.user.role !== 'doctor' && req.user.role !== 'nurse' &&
         patient.user.toString() !== req.user.id) {
       return next(new ErrorResponse(`User ${req.user.id} is not authorized to access these medications`, 401));
     }
@@ -42,6 +42,9 @@ exports.getMedications = asyncHandler(async (req, res, next) => {
     } else if (req.user.role === 'doctor') {
       // If doctor, show medications they prescribed
       query = Medication.find({ doctor: req.user.id });
+    } else if (req.user.role === 'nurse') {
+      // Nurses can see all medications (similar to admin)
+      query = Medication.find();
     } else {
       // Admin can see all medications
       query = Medication.find();
@@ -139,7 +142,7 @@ exports.getMedication = asyncHandler(async (req, res, next) => {
     return next(new ErrorResponse('Patient not found', 404));
   }
 
-  if (req.user.role !== 'admin' && req.user.role !== 'doctor' && 
+  if (req.user.role !== 'admin' && req.user.role !== 'doctor' && req.user.role !== 'nurse' &&
       patient.user.toString() !== req.user.id) {
     return next(new ErrorResponse(`User ${req.user.id} is not authorized to view this medication`, 401));
   }
@@ -152,29 +155,37 @@ exports.getMedication = asyncHandler(async (req, res, next) => {
 
 // @desc    Create new medication
 // @route   POST /api/v1/patients/:patientId/medications
-// @access  Private (doctors and admins only)
+// @route   POST /api/v1/medications
+// @access  Private (doctors, nurses, and admins only)
 exports.createMedication = asyncHandler(async (req, res, next) => {
-  // Check if user is doctor or admin
-  if (req.user.role !== 'doctor' && req.user.role !== 'admin') {
+  // Check if user is doctor, nurse, or admin
+  if (req.user.role !== 'doctor' && req.user.role !== 'admin' && req.user.role !== 'nurse') {
     return next(new ErrorResponse('Not authorized to prescribe medications', 401));
   }
 
+  // Get patient ID from params or body
+  const patientId = req.params.patientId || req.body.patient;
+  
+  if (!patientId) {
+    return next(new ErrorResponse('Patient ID is required', 400));
+  }
+
   // Check if patient exists
-  const patient = await Patient.findById(req.params.patientId);
+  const patient = await Patient.findById(patientId);
   
   if (!patient) {
-    return next(new ErrorResponse(`No patient found with id ${req.params.patientId}`, 404));
+    return next(new ErrorResponse(`No patient found with id ${patientId}`, 404));
   }
 
   // Add patient and doctor to req.body
-  req.body.patient = req.params.patientId;
+  req.body.patient = patientId;
   req.body.doctor = req.user.id;
 
   const medication = await Medication.create(req.body);
 
   // Send notification to patient
   try {
-    const patientDoc = await Patient.findById(req.params.patientId).populate('user');
+    const patientDoc = await Patient.findById(patientId).populate('user');
     const doctorUser = await User.findById(req.user.id);
     
     if (patientDoc && patientDoc.user && doctorUser) {
@@ -202,7 +213,7 @@ exports.createMedication = asyncHandler(async (req, res, next) => {
 
 // @desc    Update medication
 // @route   PUT /api/v1/medications/:id
-// @access  Private (doctors and admins only)
+// @access  Private (doctors, nurses, and admins only)
 exports.updateMedication = asyncHandler(async (req, res, next) => {
   let medication = await Medication.findById(req.params.id);
 
@@ -210,8 +221,8 @@ exports.updateMedication = asyncHandler(async (req, res, next) => {
     return next(new ErrorResponse(`No medication found with id ${req.params.id}`, 404));
   }
 
-  // Make sure user is medication creator or admin
-  if (medication.doctor.toString() !== req.user.id && req.user.role !== 'admin') {
+  // Make sure user is medication creator, nurse, or admin
+  if (medication.doctor.toString() !== req.user.id && req.user.role !== 'admin' && req.user.role !== 'nurse') {
     return next(new ErrorResponse(`User ${req.user.id} is not authorized to update this medication`, 401));
   }
 
@@ -262,7 +273,7 @@ exports.updateMedication = asyncHandler(async (req, res, next) => {
 
 // @desc    Delete medication
 // @route   DELETE /api/v1/medications/:id
-// @access  Private (doctors and admins only)
+// @access  Private (doctors, nurses, and admins only)
 exports.deleteMedication = asyncHandler(async (req, res, next) => {
   const medication = await Medication.findById(req.params.id);
 
@@ -270,8 +281,8 @@ exports.deleteMedication = asyncHandler(async (req, res, next) => {
     return next(new ErrorResponse(`No medication found with id ${req.params.id}`, 404));
   }
 
-  // Make sure user is medication creator or admin
-  if (medication.doctor.toString() !== req.user.id && req.user.role !== 'admin') {
+  // Make sure user is medication creator, nurse, or admin
+  if (medication.doctor.toString() !== req.user.id && req.user.role !== 'admin' && req.user.role !== 'nurse') {
     return next(new ErrorResponse(`User ${req.user.id} is not authorized to delete this medication`, 401));
   }
 
@@ -306,7 +317,7 @@ exports.updateMedicationStatus = asyncHandler(async (req, res, next) => {
     return next(new ErrorResponse('Patient not found', 404));
   }
 
-  if (req.user.role !== 'admin' && req.user.role !== 'doctor' && 
+  if (req.user.role !== 'admin' && req.user.role !== 'doctor' && req.user.role !== 'nurse' &&
       patient.user.toString() !== req.user.id) {
     return next(new ErrorResponse(`User ${req.user.id} is not authorized to update this medication status`, 401));
   }
@@ -335,7 +346,7 @@ exports.getActiveMedications = asyncHandler(async (req, res, next) => {
   }
 
   // Check if user is authorized to view this patient's medications
-  if (req.user.role !== 'admin' && req.user.role !== 'doctor' && 
+  if (req.user.role !== 'admin' && req.user.role !== 'doctor' && req.user.role !== 'nurse' &&
       patient.user.toString() !== req.user.id) {
     return next(new ErrorResponse(`User ${req.user.id} is not authorized to access these medications`, 401));
   }
