@@ -84,19 +84,30 @@ exports.getDoctorProfile = asyncHandler(async (req, res, next) => {
     await doctor.save();
   }
 
+  // Prepare a safe plain object to avoid any undefined nested structures
+  const safeDoctor = doctor.toObject();
+  safeDoctor.availability = {
+    days: Array.isArray(doctor.availability?.days)
+      ? doctor.availability.days
+      : [],
+    timeSlots: Array.isArray(doctor.availability?.timeSlots)
+      ? doctor.availability.timeSlots
+      : [],
+  };
+
   console.log('Returning doctor profile with all fields:', {
-    id: doctor._id,
-    specialization: doctor.specialization,
-    experience: doctor.experience,
-    consultationFee: doctor.consultationFee,
-    availabilityDays: doctor.availability?.days?.length || 0,
-    timeSlots: doctor.availability?.timeSlots?.length || 0,
-    isActive: doctor.isActive
+    id: safeDoctor._id,
+    specialization: safeDoctor.specialization,
+    experience: safeDoctor.experience,
+    consultationFee: safeDoctor.consultationFee,
+    availabilityDays: safeDoctor.availability.days.length,
+    timeSlots: safeDoctor.availability.timeSlots.length,
+    isActive: safeDoctor.isActive
   });
 
   res.status(200).json({
     success: true,
-    data: doctor,
+    data: safeDoctor,
   });
 });
 
@@ -163,13 +174,23 @@ exports.updateDoctorProfile = asyncHandler(async (req, res, next) => {
   
   // Handle availability with comprehensive validation
   if (req.body.availability !== undefined) {
-    const availability = req.body.availability;
+    let availability = req.body.availability;
+    
+    // If it's a string, try to parse it
+    if (typeof availability === 'string') {
+      try {
+        availability = JSON.parse(availability);
+      } catch (error) {
+        return next(new ErrorResponse('Invalid availability format', 400));
+      }
+    }
     
     // Validate availability structure
     if (typeof availability !== 'object' || availability === null) {
       return next(new ErrorResponse('Availability must be a valid object', 400));
     }
     
+    // Build the availability object with defaults
     updateData.availability = {
       days: Array.isArray(availability.days) ? availability.days.filter(day => 
         ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].includes(day)
@@ -179,7 +200,8 @@ exports.updateDoctorProfile = asyncHandler(async (req, res, next) => {
       ).map(slot => ({
         startTime: slot.startTime,
         endTime: slot.endTime,
-        ...(slot.date && { date: slot.date })
+        ...(slot.date && { date: slot.date }),
+        ...(slot.appointmentId && { appointmentId: slot.appointmentId })
       })) : []
     };
     
@@ -222,7 +244,7 @@ exports.updateDoctorProfile = asyncHandler(async (req, res, next) => {
   }
 
   // Perform the update with validation
-  const updatedDoctor = await Doctor.findByIdAndUpdate(
+  let updatedDoctor = await Doctor.findByIdAndUpdate(
     doctor._id,
     updateData,
     {
@@ -236,6 +258,26 @@ exports.updateDoctorProfile = asyncHandler(async (req, res, next) => {
 
   if (!updatedDoctor) {
     return next(new ErrorResponse('Failed to update doctor profile', 500));
+  }
+
+  // Ensure availability structure exists after update
+  if (!updatedDoctor.availability ||
+      !Array.isArray(updatedDoctor.availability.days) ||
+      !Array.isArray(updatedDoctor.availability.timeSlots)) {
+    updatedDoctor.availability = {
+      days: Array.isArray(updatedDoctor.availability?.days)
+        ? updatedDoctor.availability.days
+        : [],
+      timeSlots: Array.isArray(updatedDoctor.availability?.timeSlots)
+        ? updatedDoctor.availability.timeSlots
+        : [],
+    };
+    await updatedDoctor.save();
+    // Re-populate user after save
+    updatedDoctor = await Doctor.findById(updatedDoctor._id).populate({
+      path: 'user',
+      select: '-password',
+    });
   }
 
   console.log('Doctor profile updated successfully');

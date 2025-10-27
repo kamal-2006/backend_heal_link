@@ -1,4 +1,5 @@
 const Notification = require('../models/Notification');
+const smsService = require('./smsService');
 
 /**
  * Notification utility to create and send notifications
@@ -6,6 +7,31 @@ const Notification = require('../models/Notification');
  */
 
 class NotificationService {
+  /**
+   * Enrich a minimal user-like object with name and phone from the User model if missing
+   * @param {Object} userLike - Object that may contain _id, name, phone
+   * @returns {Promise<{_id:any,name:string,phone:string|null}>}
+   */
+  static async enrichUserInfo(userLike) {
+    try {
+      if (!userLike || !userLike._id) return null;
+      const hasName = typeof userLike.name === 'string' && userLike.name.trim().length > 0;
+      const hasPhone = typeof userLike.phone === 'string' && userLike.phone.trim().length > 0;
+      if (hasName && hasPhone) return userLike;
+
+      const User = require('../models/User');
+      const u = await User.findById(userLike._id).select('firstName lastName phone');
+      if (!u) return userLike;
+      return {
+        _id: userLike._id,
+        name: hasName ? userLike.name : `${u.firstName || ''} ${u.lastName || ''}`.trim(),
+        phone: hasPhone ? userLike.phone : (u.phone || null),
+      };
+    } catch (e) {
+      console.error('Error enriching user info:', e);
+      return userLike;
+    }
+  }
   /**
    * Create a notification
    * @param {Object} notificationData - Notification data
@@ -34,6 +60,9 @@ class NotificationService {
    * Send appointment booked notification
    */
   static async sendAppointmentBookedNotification(appointment, doctor, patient) {
+    // Ensure we have names and phone numbers for SMS
+    const doctorInfo = await this.enrichUserInfo(doctor);
+    const patientInfo = await this.enrichUserInfo(patient);
     const notifications = [];
 
     // Notification to doctor
@@ -43,11 +72,11 @@ class NotificationService {
         role: 'doctor',
         type: 'appointment_booked',
         title: 'New Appointment Booked',
-        message: `New appointment booked by ${patient.name} on ${new Date(appointment.date).toLocaleDateString()}`,
+        message: `New appointment booked by ${(patientInfo?.name || patient?.name || 'patient')} on ${new Date(appointment.date).toLocaleDateString()}`,
         data: {
           appointmentId: appointment._id,
           patientId: patient._id,
-          patientName: patient.name,
+          patientName: patientInfo?.name || patient?.name,
           date: appointment.date,
           time: appointment.time
         },
@@ -63,11 +92,11 @@ class NotificationService {
         role: 'patient',
         type: 'appointment_booked',
         title: 'Appointment Confirmed',
-        message: `Your appointment with Dr. ${doctor.name} is confirmed for ${new Date(appointment.date).toLocaleDateString()}`,
+        message: `Your appointment with Dr. ${(doctorInfo?.name || doctor?.name || 'Doctor')} is confirmed for ${new Date(appointment.date).toLocaleDateString()}`,
         data: {
           appointmentId: appointment._id,
           doctorId: doctor._id,
-          doctorName: doctor.name,
+          doctorName: doctorInfo?.name || doctor?.name,
           date: appointment.date,
           time: appointment.time
         },
@@ -86,13 +115,13 @@ class NotificationService {
           role: 'admin',
           type: 'appointment_booked',
           title: 'New Appointment Created',
-          message: `${patient.name} booked appointment with Dr. ${doctor.name} on ${new Date(appointment.date).toLocaleDateString()}`,
+          message: `${(patientInfo?.name || patient?.name)} booked appointment with Dr. ${(doctorInfo?.name || doctor?.name)} on ${new Date(appointment.date).toLocaleDateString()}`,
           data: {
             appointmentId: appointment._id,
             patientId: patient._id,
-            patientName: patient.name,
+            patientName: patientInfo?.name || patient?.name,
             doctorId: doctor._id,
-            doctorName: doctor.name,
+            doctorName: doctorInfo?.name || doctor?.name,
             date: appointment.date,
             time: appointment.time
           },
@@ -109,13 +138,13 @@ class NotificationService {
           role: 'nurse',
           type: 'appointment_booked',
           title: 'New Appointment Scheduled',
-          message: `${patient.name} booked appointment with Dr. ${doctor.name} on ${new Date(appointment.date).toLocaleDateString()}`,
+          message: `${(patientInfo?.name || patient?.name)} booked appointment with Dr. ${(doctorInfo?.name || doctor?.name)} on ${new Date(appointment.date).toLocaleDateString()}`,
           data: {
             appointmentId: appointment._id,
             patientId: patient._id,
-            patientName: patient.name,
+            patientName: patientInfo?.name || patient?.name,
             doctorId: doctor._id,
-            doctorName: doctor.name,
+            doctorName: doctorInfo?.name || doctor?.name,
             date: appointment.date,
             time: appointment.time
           },
@@ -127,6 +156,16 @@ class NotificationService {
       console.error('Error notifying admins/nurses:', error);
     }
 
+    // Send SMS notifications
+    try {
+      console.log('📱 Attempting to send appointment booked SMS...');
+      console.log('   Doctor info:', { id: doctorInfo?._id, name: doctorInfo?.name, phone: doctorInfo?.phone });
+      console.log('   Patient info:', { id: patientInfo?._id, name: patientInfo?.name, phone: patientInfo?.phone });
+      await smsService.sendAppointmentBookedSMS(appointment, doctorInfo || doctor, patientInfo || patient);
+    } catch (error) {
+      console.error('❌ Error sending SMS notifications:', error);
+    }
+
     return await Promise.all(notifications.map(n => this.createNotification(n)));
   }
 
@@ -134,6 +173,8 @@ class NotificationService {
    * Send appointment rescheduled notification
    */
   static async sendAppointmentRescheduledNotification(appointment, doctor, patient, oldDate, newDate) {
+    const doctorInfo = await this.enrichUserInfo(doctor);
+    const patientInfo = await this.enrichUserInfo(patient);
     const notifications = [];
 
     // Notification to doctor
@@ -143,11 +184,11 @@ class NotificationService {
         role: 'doctor',
         type: 'appointment_rescheduled',
         title: 'Appointment Rescheduled',
-        message: `Appointment with ${patient.name} has been rescheduled to ${new Date(newDate).toLocaleDateString()}`,
+  message: `Appointment with ${(patientInfo?.name || patient?.name)} has been rescheduled to ${new Date(newDate).toLocaleDateString()}`,
         data: {
           appointmentId: appointment._id,
           patientId: patient._id,
-          patientName: patient.name,
+          patientName: patientInfo?.name || patient?.name,
           oldDate,
           newDate,
           time: appointment.time
@@ -164,11 +205,11 @@ class NotificationService {
         role: 'patient',
         type: 'appointment_rescheduled',
         title: 'Appointment Rescheduled',
-        message: `Your appointment with Dr. ${doctor.name} has been rescheduled to ${new Date(newDate).toLocaleDateString()}`,
+  message: `Your appointment with Dr. ${(doctorInfo?.name || doctor?.name)} has been rescheduled to ${new Date(newDate).toLocaleDateString()}`,
         data: {
           appointmentId: appointment._id,
           doctorId: doctor._id,
-          doctorName: doctor.name,
+          doctorName: doctorInfo?.name || doctor?.name,
           oldDate,
           newDate,
           time: appointment.time
@@ -188,13 +229,13 @@ class NotificationService {
           role: 'admin',
           type: 'appointment_rescheduled',
           title: 'Appointment Rescheduled',
-          message: `Appointment between ${patient.name} and Dr. ${doctor.name} rescheduled to ${new Date(newDate).toLocaleDateString()}`,
+          message: `Appointment between ${(patientInfo?.name || patient?.name)} and Dr. ${(doctorInfo?.name || doctor?.name)} rescheduled to ${new Date(newDate).toLocaleDateString()}`,
           data: {
             appointmentId: appointment._id,
             patientId: patient._id,
-            patientName: patient.name,
+            patientName: patientInfo?.name || patient?.name,
             doctorId: doctor._id,
-            doctorName: doctor.name,
+            doctorName: doctorInfo?.name || doctor?.name,
             oldDate,
             newDate,
             time: appointment.time
@@ -217,13 +258,13 @@ class NotificationService {
           role: 'nurse',
           type: 'appointment_rescheduled',
           title: 'Appointment Rescheduled',
-          message: `Appointment for ${patient.name} with Dr. ${doctor.name} rescheduled to ${new Date(newDate).toLocaleDateString()}`,
+          message: `Appointment for ${(patientInfo?.name || patient?.name)} with Dr. ${(doctorInfo?.name || doctor?.name)} rescheduled to ${new Date(newDate).toLocaleDateString()}`,
           data: {
             appointmentId: appointment._id,
             patientId: patient._id,
-            patientName: patient.name,
+            patientName: patientInfo?.name || patient?.name,
             doctorId: doctor._id,
-            doctorName: doctor.name,
+            doctorName: doctorInfo?.name || doctor?.name,
             oldDate,
             newDate,
             time: appointment.time
@@ -236,6 +277,16 @@ class NotificationService {
       console.error('Error notifying nurses:', error);
     }
 
+    // Send SMS notifications
+    try {
+      console.log('📱 Attempting to send appointment rescheduled SMS...');
+      console.log('   Doctor info:', { id: doctorInfo?._id, name: doctorInfo?.name, phone: doctorInfo?.phone });
+      console.log('   Patient info:', { id: patientInfo?._id, name: patientInfo?.name, phone: patientInfo?.phone });
+      await smsService.sendAppointmentRescheduledSMS(appointment, doctorInfo || doctor, patientInfo || patient, oldDate, newDate);
+    } catch (error) {
+      console.error('❌ Error sending SMS notifications:', error);
+    }
+
     return await Promise.all(notifications.map(n => this.createNotification(n)));
   }
 
@@ -243,6 +294,8 @@ class NotificationService {
    * Send appointment cancelled notification
    */
   static async sendAppointmentCancelledNotification(appointment, doctor, patient, cancelledBy) {
+    const doctorInfo = await this.enrichUserInfo(doctor);
+    const patientInfo = await this.enrichUserInfo(patient);
     const notifications = [];
 
     // Notification to doctor
@@ -252,11 +305,11 @@ class NotificationService {
         role: 'doctor',
         type: 'appointment_cancelled',
         title: 'Appointment Cancelled',
-        message: `Appointment with ${patient.name} on ${new Date(appointment.date).toLocaleDateString()} has been cancelled`,
+  message: `Appointment with ${(patientInfo?.name || patient?.name)} on ${new Date(appointment.date).toLocaleDateString()} has been cancelled`,
         data: {
           appointmentId: appointment._id,
           patientId: patient._id,
-          patientName: patient.name,
+          patientName: patientInfo?.name || patient?.name,
           date: appointment.date,
           cancelledBy
         },
@@ -272,11 +325,11 @@ class NotificationService {
         role: 'patient',
         type: 'appointment_cancelled',
         title: 'Appointment Cancelled',
-        message: `Your appointment with Dr. ${doctor.name} on ${new Date(appointment.date).toLocaleDateString()} has been cancelled`,
+  message: `Your appointment with Dr. ${(doctorInfo?.name || doctor?.name)} on ${new Date(appointment.date).toLocaleDateString()} has been cancelled`,
         data: {
           appointmentId: appointment._id,
           doctorId: doctor._id,
-          doctorName: doctor.name,
+          doctorName: doctorInfo?.name || doctor?.name,
           date: appointment.date,
           cancelledBy
         },
@@ -295,13 +348,13 @@ class NotificationService {
           role: 'admin',
           type: 'appointment_cancelled',
           title: 'Appointment Cancelled',
-          message: `Appointment between ${patient.name} and Dr. ${doctor.name} cancelled by ${cancelledBy}`,
+          message: `Appointment between ${(patientInfo?.name || patient?.name)} and Dr. ${(doctorInfo?.name || doctor?.name)} cancelled by ${cancelledBy}`,
           data: {
             appointmentId: appointment._id,
             patientId: patient._id,
-            patientName: patient.name,
+            patientName: patientInfo?.name || patient?.name,
             doctorId: doctor._id,
-            doctorName: doctor.name,
+            doctorName: doctorInfo?.name || doctor?.name,
             date: appointment.date,
             cancelledBy
           },
@@ -318,13 +371,13 @@ class NotificationService {
           role: 'nurse',
           type: 'appointment_cancelled',
           title: 'Appointment Cancelled',
-          message: `Appointment for ${patient.name} with Dr. ${doctor.name} has been cancelled`,
+          message: `Appointment for ${(patientInfo?.name || patient?.name)} with Dr. ${(doctorInfo?.name || doctor?.name)} has been cancelled`,
           data: {
             appointmentId: appointment._id,
             patientId: patient._id,
-            patientName: patient.name,
+            patientName: patientInfo?.name || patient?.name,
             doctorId: doctor._id,
-            doctorName: doctor.name,
+            doctorName: doctorInfo?.name || doctor?.name,
             date: appointment.date,
             cancelledBy
           },
@@ -336,6 +389,17 @@ class NotificationService {
       console.error('Error notifying admins/nurses:', error);
     }
 
+    // Send SMS notifications
+    try {
+      console.log('📱 Attempting to send appointment cancelled SMS...');
+      console.log('   Doctor info:', { id: doctorInfo?._id, name: doctorInfo?.name, phone: doctorInfo?.phone });
+      console.log('   Patient info:', { id: patientInfo?._id, name: patientInfo?.name, phone: patientInfo?.phone });
+      console.log('   Cancelled by:', cancelledBy);
+      await smsService.sendAppointmentCancelledSMS(appointment, doctorInfo || doctor, patientInfo || patient, cancelledBy);
+    } catch (error) {
+      console.error('❌ Error sending SMS notifications:', error);
+    }
+
     return await Promise.all(notifications.map(n => this.createNotification(n)));
   }
 
@@ -343,6 +407,8 @@ class NotificationService {
    * Send appointment reminder notification
    */
   static async sendAppointmentReminderNotification(appointment, doctor, patient) {
+    const doctorInfo = await this.enrichUserInfo(doctor);
+    const patientInfo = await this.enrichUserInfo(patient);
     const notifications = [];
 
     // Notification to doctor
@@ -352,11 +418,11 @@ class NotificationService {
         role: 'doctor',
         type: 'appointment_reminder',
         title: 'Appointment Reminder',
-        message: `Upcoming appointment with ${patient.name} in 1 hour`,
+  message: `Upcoming appointment with ${(patientInfo?.name || patient?.name)} in 1 hour`,
         data: {
           appointmentId: appointment._id,
           patientId: patient._id,
-          patientName: patient.name,
+          patientName: patientInfo?.name || patient?.name,
           date: appointment.date,
           time: appointment.time
         },
@@ -372,17 +438,24 @@ class NotificationService {
         role: 'patient',
         type: 'appointment_reminder',
         title: 'Appointment Reminder',
-        message: `Your appointment with Dr. ${doctor.name} is in 1 hour`,
+  message: `Your appointment with Dr. ${(doctorInfo?.name || doctor?.name)} is in 1 hour`,
         data: {
           appointmentId: appointment._id,
           doctorId: doctor._id,
-          doctorName: doctor.name,
+          doctorName: doctorInfo?.name || doctor?.name,
           date: appointment.date,
           time: appointment.time
         },
         priority: 'high',
         actionUrl: `/patient/appointments/${appointment._id}`
       });
+    }
+
+    // Send SMS reminder notifications
+    try {
+      await smsService.sendAppointmentReminderSMS(appointment, doctorInfo || doctor, patientInfo || patient);
+    } catch (error) {
+      console.error('Error sending SMS reminder:', error);
     }
 
     return await Promise.all(notifications.map(n => this.createNotification(n)));

@@ -13,19 +13,31 @@ app.use((req, res, next) => {
   console.log(`${req.method} ${req.originalUrl}`);
   next();
 });
+
+// CORS: allow explicit origins only ("*" with credentials breaks browsers)
+const allowedOrigins = [
+  process.env.FRONTEND_ORIGIN || "http://localhost:3001",
+  process.env.FRONTEND_ORIGIN_ALT1,
+  process.env.FRONTEND_ORIGIN_ALT2,
+  process.env.FRONTEND_ORIGIN_ALT3,
+].filter(Boolean);
+
+console.log("FRONTEND_ORIGIN from env:", process.env.FRONTEND_ORIGIN);
 app.use(
   cors({
-    origin: [
-      "http://localhost:3000",
-      "http://localhost:3001",
-      "http://localhost:3002",
-      "http://localhost:3003",
-      "http://localhost:3004",
-      process.env.FRONTEND_ORIGIN,
-    ].filter(Boolean),
+    origin: allowedOrigins,
     credentials: true,
+    methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE", "OPTIONS"],
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+      "X-Requested-With",
+      "Accept",
+    ],
   })
 );
+// Handle preflight for all routes
+// Note: cors middleware above handles OPTIONS automatically; no explicit wildcard route
 const uploadsPath = path.join(__dirname, "uploads");
 app.use("/uploads", express.static(uploadsPath));
 console.log(`Serving static files from: ${uploadsPath}`);
@@ -61,24 +73,26 @@ if (!process.env.VERCEL) {
     process.exit(1);
   });
 
-  server = app.listen(PORT, () => {
+  server = app.listen(PORT, '0.0.0.0', () => {
     console.log(
       `Server running in ${process.env.NODE_ENV} mode on port ${PORT}`
     );
+    const apiUrl = process.env.BACKEND_URL || `http://localhost:${PORT}`;
+    console.log(`Backend API available at: ${apiUrl}/api/v1`);
+  });
+
+  server.on('error', (error) => {
+    console.error('Server error:', error);
+    if (error.code === 'EADDRINUSE') {
+      console.error(`Port ${PORT} is already in use`);
+    }
   });
 
   // Setup Socket.IO
   const socketIO = require("socket.io");
   io = socketIO(server, {
     cors: {
-      origin: [
-        "http://localhost:3000",
-        "http://localhost:3001",
-        "http://localhost:3002",
-        "http://localhost:3003",
-        "http://localhost:3004",
-        process.env.FRONTEND_ORIGIN,
-      ].filter(Boolean),
+      origin: allowedOrigins,
       credentials: true,
     },
   });

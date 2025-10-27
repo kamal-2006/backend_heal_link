@@ -9,6 +9,7 @@ const {
     getPatientReports,
     addPatientMedication,
     getPatientMedications,
+    getAllMedications,
     updateMedicationStatus,
     getNurseDashboard,
     getAssignedAppointments,
@@ -19,7 +20,7 @@ const {
 } = require('../controllers/nurse');
 
 const { protect, authorize } = require('../middleware/auth');
-const { uploadSingle } = require('../middleware/upload');
+const { uploadSingle, upload } = require('../middleware/upload');
 
 // Apply protect and authorize middleware to all routes
 router.use(protect);
@@ -27,7 +28,7 @@ router.use(authorize('nurse'));
 
 // Nurse profile and dashboard
 router.get('/profile', getNurseProfile);
-router.put('/profile', updateNurseProfile);
+router.put('/profile', upload, updateNurseProfile);
 router.get('/dashboard', getNurseDashboard);
 router.get('/dashboard-data', getNurseDashboard); // Alias for consistency with other dashboards
 
@@ -47,6 +48,7 @@ router.post('/reports/upload', uploadSingle, uploadPatientReport);
 router.get('/patients/:id/reports', getPatientReports);
 
 // Medication routes
+router.get('/medications', getAllMedications);
 router.post('/medications', addPatientMedication);
 router.get('/patients/:id/medications', getPatientMedications);
 router.put('/medications/:id', updateMedicationStatus);

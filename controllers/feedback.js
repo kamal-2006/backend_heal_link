@@ -583,17 +583,25 @@ exports.getPatientFeedbackHistory = async (req, res, next) => {
 };
 
 // @desc    Get appointments available for feedback
+//          Includes:
+//          - Appointments explicitly marked as 'completed'
+//          - Appointments whose scheduled time has passed (date < now) and are not cancelled
 // @route   GET /api/v1/feedback/patient/appointments
 // @access  Private (Patient only)
 exports.getAppointmentsForFeedback = async (req, res, next) => {
     try {
         console.log('=== Get Appointments For Feedback ===');
         console.log('Patient ID:', req.user.id);
-        
-        // First, get completed appointments for the patient
+        const now = new Date();
+        // Get eligible appointments for the patient
+        // 1) status completed
+        // 2) OR in the past and not cancelled (scheduled/rescheduled)
         const appointments = await Appointment.find({
             patient: req.user.id,
-            status: 'completed'
+            $or: [
+                { status: 'completed' },
+                { date: { $lt: now }, status: { $in: ['scheduled', 'rescheduled'] } },
+            ],
         })
         .populate({
             path: 'doctor',
@@ -662,8 +670,8 @@ exports.getAppointmentsForFeedback = async (req, res, next) => {
                         specialization: doctorInfo?.specialization || 'General Medicine',
                         experience: doctorInfo?.experience || 0,
                         qualification: doctorInfo?.qualification || '',
-                        consultationFee: doctorInfo?.consultationFee || 0
-                    } : null
+                        consultationFee: doctorInfo?.consultationFee || 0,
+                    } : null,
                 };
                 
                 appointmentsWithoutFeedback.push(enhancedAppointment);

@@ -1,6 +1,37 @@
 const { body, validationResult } = require('express-validator');
 const ErrorResponse = require('../utils/errorResponse');
 
+// Middleware to parse JSON strings in FormData before validation
+exports.parseFormDataJSON = (req, res, next) => {
+  // Parse availability if it's a string
+  if (req.body.availability && typeof req.body.availability === 'string') {
+    try {
+      req.body.availability = JSON.parse(req.body.availability);
+    } catch (error) {
+      return next(new ErrorResponse('Invalid availability format', 400));
+    }
+  }
+  
+  // Parse other JSON fields if needed
+  if (req.body.hospital && typeof req.body.hospital === 'string') {
+    try {
+      req.body.hospital = JSON.parse(req.body.hospital);
+    } catch (error) {
+      return next(new ErrorResponse('Invalid hospital format', 400));
+    }
+  }
+  
+  if (req.body.awards && typeof req.body.awards === 'string') {
+    try {
+      req.body.awards = JSON.parse(req.body.awards);
+    } catch (error) {
+      return next(new ErrorResponse('Invalid awards format', 400));
+    }
+  }
+  
+  next();
+};
+
 // Validation middleware for doctor profile updates
 exports.validateDoctorProfileUpdate = [
   body('consultationFee')
@@ -99,25 +130,52 @@ exports.validateDoctorProfileUpdate = [
 
 // Validation for availability time slots
 exports.validateTimeSlots = (req, res, next) => {
-  if (req.body.availability && req.body.availability.timeSlots) {
-    const timeSlots = req.body.availability.timeSlots;
+  // Skip validation if availability is not provided
+  if (!req.body.availability) {
+    return next();
+  }
+  
+  // Ensure availability is an object
+  if (typeof req.body.availability !== 'object') {
+    return next(new ErrorResponse('Availability must be an object', 400));
+  }
+  
+  // Skip validation if timeSlots is not provided or is empty
+  if (!req.body.availability.timeSlots || !Array.isArray(req.body.availability.timeSlots) || req.body.availability.timeSlots.length === 0) {
+    return next();
+  }
+  
+  const timeSlots = req.body.availability.timeSlots;
+  
+  for (let i = 0; i < timeSlots.length; i++) {
+    const slot = timeSlots[i];
     
-    for (let i = 0; i < timeSlots.length; i++) {
-      const slot = timeSlots[i];
-      if (slot.startTime && slot.endTime) {
-        const startTime = new Date(`1970-01-01T${slot.startTime}:00`);
-        const endTime = new Date(`1970-01-01T${slot.endTime}:00`);
-        
-        if (startTime >= endTime) {
-          return next(new ErrorResponse(`Time slot ${i + 1}: End time must be after start time`, 400));
-        }
+    // Skip if slot doesn't have both times
+    if (!slot || !slot.startTime || !slot.endTime) {
+      continue;
+    }
+    
+    try {
+      const startTime = new Date(`1970-01-01T${slot.startTime}:00`);
+      const endTime = new Date(`1970-01-01T${slot.endTime}:00`);
+      
+      if (isNaN(startTime.getTime()) || isNaN(endTime.getTime())) {
+        return next(new ErrorResponse(`Time slot ${i + 1}: Invalid time format`, 400));
       }
+      
+      if (startTime >= endTime) {
+        return next(new ErrorResponse(`Time slot ${i + 1}: End time must be after start time`, 400));
+      }
+    } catch (error) {
+      return next(new ErrorResponse(`Time slot ${i + 1}: Error parsing time - ${error.message}`, 400));
     }
   }
+  
   next();
 };
 
 module.exports = {
+  parseFormDataJSON: exports.parseFormDataJSON,
   validateDoctorProfileUpdate: exports.validateDoctorProfileUpdate,
   validateTimeSlots: exports.validateTimeSlots
 };

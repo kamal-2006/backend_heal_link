@@ -484,9 +484,9 @@ exports.bookAppointment = async (req, res, next) => {
 // @access  Private
 exports.cancelAppointment = async (req, res, next) => {
   try {
-    const appointment = await Appointment.findById(req.params.id).populate({
-      path: "doctor",
-    });
+    const appointment = await Appointment.findById(req.params.id)
+      .populate('doctor')
+      .populate('patient');
 
     if (!appointment) {
       return res.status(404).json({
@@ -498,7 +498,7 @@ exports.cancelAppointment = async (req, res, next) => {
     // Make sure user is appointment owner or admin
     if (
       req.user.role !== "admin" &&
-      appointment.patient.toString() !== req.user.id &&
+      appointment.patient._id.toString() !== req.user.id &&
       appointment.doctor._id.toString() !== req.user.id
     ) {
       return res.status(401).json({
@@ -510,6 +510,19 @@ exports.cancelAppointment = async (req, res, next) => {
     // Update status to cancelled
     appointment.status = "cancelled";
     await appointment.save();
+
+    // Send notification
+    try {
+      const cancelledBy = req.user.role; // 'patient', 'doctor', or 'admin'
+      await NotificationService.sendAppointmentCancelledNotification(
+        appointment,
+        appointment.doctor,
+        appointment.patient,
+        cancelledBy
+      );
+    } catch (notifError) {
+      console.error('Error sending cancellation notification:', notifError);
+    }
 
     res.status(200).json({
       success: true,
@@ -528,7 +541,12 @@ exports.cancelAppointment = async (req, res, next) => {
 // @access  Private
 exports.updateAppointment = async (req, res, next) => {
   try {
-    let appointment = await Appointment.findById(req.params.id);
+    const appointmentId = req.params.id;
+    const updates = req.body;
+
+    let appointment = await Appointment.findById(appointmentId)
+      .populate("doctor")
+      .populate("patient");
 
     if (!appointment) {
       return res.status(404).json({
@@ -537,11 +555,11 @@ exports.updateAppointment = async (req, res, next) => {
       });
     }
 
-    // Make sure user is appointment owner, doctor, or admin
+    // Authorization check
     if (
       req.user.role !== "admin" &&
-      appointment.patient.toString() !== req.user.id &&
-      appointment.doctor.toString() !== req.user.id
+      appointment.patient._id.toString() !== req.user.id &&
+      appointment.doctor._id.toString() !== req.user.id
     ) {
       return res.status(401).json({
         success: false,
@@ -549,13 +567,16 @@ exports.updateAppointment = async (req, res, next) => {
       });
     }
 
-    // If changing date/time, check for conflicts
-    if (req.body.date && req.body.date !== appointment.date.toISOString()) {
+    const oldDate = appointment.date;
+    const isRescheduling = updates.date && updates.date !== oldDate.toISOString();
+
+    // If rescheduling, check for conflicts
+    if (isRescheduling) {
       const existingAppointment = await Appointment.findOne({
-        doctor: appointment.doctor,
-        date: new Date(req.body.date),
-        _id: { $ne: req.params.id }, // Not this appointment
-        status: { $ne: "cancelled" }, // Not cancelled
+        doctor: appointment.doctor._id,
+        date: new Date(updates.date),
+        _id: { $ne: appointmentId },
+        status: { $ne: "cancelled" },
       });
 
       if (existingAppointment) {
@@ -564,34 +585,49 @@ exports.updateAppointment = async (req, res, next) => {
           error: "Doctor is not available at this time",
         });
       }
+      updates.status = 'rescheduled';
     }
 
-    appointment = await Appointment.findByIdAndUpdate(req.params.id, req.body, {
-      new: true,
-      runValidators: true,
-    })
-      .populate({
-        path: "doctor",
-        select: "firstName lastName email",
-      })
-      .populate({
-        path: "patient",
-        select: "firstName lastName email phone",
-      });
+    // Perform the update
+    const updatedAppointment = await Appointment.findByIdAndUpdate(
+      appointmentId,
+      updates,
+      {
+        new: true,
+        runValidators: true,
+      }
+    )
+      .populate("doctor")
+      .populate("patient");
 
-    // Update doctor availability with new appointment time
+    // Update doctor availability
     try {
-      const doctorDoc = await Doctor.findOne({ user: appointment.doctor._id });
+      const doctorDoc = await Doctor.findOne({ user: updatedAppointment.doctor._id });
       if (doctorDoc) {
         await updateDoctorAvailability(doctorDoc._id);
       }
     } catch (availabilityError) {
+      console.error('Error updating doctor availability:', availabilityError);
+    }
 
+    // Send notification for rescheduling
+    if (isRescheduling) {
+      try {
+        await NotificationService.sendAppointmentRescheduledNotification(
+          updatedAppointment,
+          updatedAppointment.doctor,
+          updatedAppointment.patient,
+          oldDate,
+          updatedAppointment.date
+        );
+      } catch (notifError) {
+        console.error('Error sending reschedule notification:', notifError);
+      }
     }
 
     res.status(200).json({
       success: true,
-      data: appointment,
+      data: updatedAppointment,
     });
   } catch (error) {
     res.status(400).json({

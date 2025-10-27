@@ -13,10 +13,14 @@ exports.getNurseProfile = async (req, res, next) => {
     try {
         let nurse = await Nurse.findOne({ user: req.user.id })
             .populate({
+                path: 'user',
+                select: 'firstName lastName email phone profilePicture'
+            })
+            .populate({
                 path: 'assignedPatients',
                 populate: {
                     path: 'user',
-                    select: 'firstName lastName email phone'
+                    select: 'firstName lastName email phone profilePicture'
                 }
             });
 
@@ -40,10 +44,14 @@ exports.getNurseProfile = async (req, res, next) => {
                 // Populate the user data after saving
                 nurse = await Nurse.findById(nurse._id)
                     .populate({
+                        path: 'user',
+                        select: 'firstName lastName email phone profilePicture'
+                    })
+                    .populate({
                         path: 'assignedPatients',
                         populate: {
                             path: 'user',
-                            select: 'firstName lastName email phone'
+                            select: 'firstName lastName email phone profilePicture'
                         }
                     });
             } catch (saveError) {
@@ -92,6 +100,10 @@ exports.updateNurseProfile = async (req, res, next) => {
         if (lastName) userUpdateData.lastName = lastName;
         if (email) userUpdateData.email = email;
         if (phone) userUpdateData.phone = phone;
+        if (req.file) {
+            // Store the file path for profile picture
+            userUpdateData.profilePicture = `/uploads/profile-photos/${req.file.filename}`;
+        }
 
         if (Object.keys(userUpdateData).length > 0) {
             await User.findByIdAndUpdate(req.user.id, userUpdateData);
@@ -132,10 +144,14 @@ exports.updateNurseProfile = async (req, res, next) => {
         // Fetch updated nurse profile with populated data
         const updatedNurse = await Nurse.findOne({ user: req.user.id })
             .populate({
+                path: 'user',
+                select: 'firstName lastName email phone profilePicture'
+            })
+            .populate({
                 path: 'assignedPatients',
                 populate: {
                     path: 'user',
-                    select: 'firstName lastName email phone'
+                    select: 'firstName lastName email phone profilePicture'
                 }
             });
 
@@ -298,6 +314,24 @@ exports.uploadPatientReport = async (req, res, next) => {
                 select: 'firstName lastName'
             });
 
+        // Send notification to patient
+        try {
+            const Notification = require('../models/Notification');
+            await Notification.create({
+                recipient: patientExists.user,
+                type: 'report',
+                title: 'New Medical Report Uploaded',
+                message: `A new ${recordType} report "${title}" has been uploaded to your records.`,
+                relatedData: {
+                    recordId: medicalRecord._id,
+                    patientId: patient
+                }
+            });
+        } catch (notifError) {
+            console.error('Error creating notification:', notifError);
+            // Don't fail the request if notification fails
+        }
+
         res.status(201).json({
             success: true,
             data: populatedRecord
@@ -368,7 +402,7 @@ exports.addPatientMedication = async (req, res, next) => {
             });
         }
 
-        const { patient, name, dosage, frequency, startDate, endDate, instructions, status, reminders, notes } = req.body;
+        const { patient, medicationName, dosage, frequency, duration, startDate, endDate, instructions, prescribedBy, status, reminders, notes } = req.body;
 
         // Check if patient is assigned to this nurse
         if (!nurse.assignedPatients.includes(patient)) {
@@ -391,15 +425,15 @@ exports.addPatientMedication = async (req, res, next) => {
         const medication = await Medication.create({
             patient,
             doctor: req.user.id, // Using nurse's user ID
-            name,
+            name: medicationName, // Map medicationName to name
             dosage,
             frequency,
             startDate,
             endDate,
             instructions,
-            status,
+            status: status || 'active',
             reminders,
-            notes
+            notes: notes || `Duration: ${duration || 'Not specified'}. Prescribed by: ${prescribedBy || 'Nurse'}`
         });
 
         const populatedMedication = await Medication.findById(medication._id)
@@ -414,6 +448,24 @@ exports.addPatientMedication = async (req, res, next) => {
                 path: 'doctor',
                 select: 'firstName lastName'
             });
+
+        // Send notification to patient
+        try {
+            const Notification = require('../models/Notification');
+            await Notification.create({
+                recipient: patientExists.user,
+                type: 'medication',
+                title: 'New Medication Added',
+                message: `A new medication "${medicationName}" (${dosage}) has been prescribed for you. Frequency: ${frequency}`,
+                relatedData: {
+                    medicationId: medication._id,
+                    patientId: patient
+                }
+            });
+        } catch (notifError) {
+            console.error('Error creating notification:', notifError);
+            // Don't fail the request if notification fails
+        }
 
         res.status(201).json({
             success: true,
@@ -464,6 +516,71 @@ exports.getPatientMedications = async (req, res, next) => {
         });
     } catch (error) {
         console.error('Get patient medications error:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Server Error'
+        });
+    }
+};
+
+// @desc    Get all medications with filters
+// @route   GET /api/v1/nurse/medications
+// @access  Private/Nurse
+exports.getAllMedications = async (req, res, next) => {
+    try {
+        const nurse = await Nurse.findOne({ user: req.user.id });
+
+        if (!nurse) {
+            return res.status(404).json({
+                success: false,
+                error: 'Nurse profile not found'
+            });
+        }
+
+        // Build query
+        let query = {};
+        
+        // Filter by patient if specified
+        if (req.query.patient) {
+            // Check if patient is assigned to this nurse
+            if (!nurse.assignedPatients.includes(req.query.patient)) {
+                return res.status(403).json({
+                    success: false,
+                    error: 'You are not authorized to access this patient\'s medications'
+                });
+            }
+            query.patient = req.query.patient;
+        } else {
+            // Only show medications for assigned patients
+            query.patient = { $in: nurse.assignedPatients };
+        }
+
+        // Filter by status if specified
+        if (req.query.status) {
+            query.status = req.query.status;
+        }
+
+        const medications = await Medication.find(query)
+            .populate({
+                path: 'patient',
+                populate: {
+                    path: 'user',
+                    select: 'firstName lastName email'
+                }
+            })
+            .populate({
+                path: 'doctor',
+                select: 'firstName lastName'
+            })
+            .sort('-createdAt');
+
+        res.status(200).json({
+            success: true,
+            count: medications.length,
+            data: medications
+        });
+    } catch (error) {
+        console.error('Get all medications error:', error);
         res.status(500).json({
             success: false,
             error: 'Server Error'
@@ -932,6 +1049,24 @@ exports.addMedicalReport = async (req, res, next) => {
                 path: 'doctor',
                 select: 'firstName lastName email'
             });
+
+        // Send notification to patient
+        try {
+            const Notification = require('../models/Notification');
+            await Notification.create({
+                recipient: patientExists.user,
+                type: 'report',
+                title: 'New Medical Report Added',
+                message: `A new ${recordType} report "${title}" has been added to your medical records.`,
+                relatedData: {
+                    recordId: medicalRecord._id,
+                    patientId: patient
+                }
+            });
+        } catch (notifError) {
+            console.error('Error creating notification:', notifError);
+            // Don't fail the request if notification fails
+        }
 
         res.status(201).json({
             success: true,

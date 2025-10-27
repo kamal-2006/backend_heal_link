@@ -9,7 +9,7 @@ const {
   getDoctorPatients,
 } = require("../controllers/doctor");
 const { protect, authorize } = require("../middleware/auth");
-const { validateDoctorProfileUpdate, validateTimeSlots } = require("../middleware/doctorValidation");
+const { parseFormDataJSON, validateDoctorProfileUpdate, validateTimeSlots } = require("../middleware/doctorValidation");
 
 const router = express.Router();
 
@@ -20,7 +20,8 @@ router
   .put(
     protect, 
     authorize("doctor"), 
-    validateDoctorProfileUpdate,
+    parseFormDataJSON,
+    ...validateDoctorProfileUpdate,
     validateTimeSlots,
     updateDoctorProfile
   );
@@ -30,7 +31,8 @@ router.put(
   "/me/settings",
   protect,
   authorize("doctor"),
-  validateDoctorProfileUpdate,
+  parseFormDataJSON,
+  ...validateDoctorProfileUpdate,
   validateTimeSlots,
   updateDoctorProfile
 );
@@ -39,7 +41,8 @@ router.put(
   "/me/availability",
   protect,
   authorize("doctor"),
-  validateDoctorProfileUpdate,
+  parseFormDataJSON,
+  ...validateDoctorProfileUpdate,
   validateTimeSlots,
   updateDoctorProfile
 );
